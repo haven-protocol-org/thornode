@@ -36,7 +36,6 @@ func GetQueryCmd() *cobra.Command {
 func GetCmdGetVersion() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
-<<<<<<< HEAD
 		Short: "Gets the THORChain version and build information",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
@@ -44,24 +43,13 @@ func GetCmdGetVersion() *cobra.Command {
 				return err
 			}
 			clientCtx.OutputFormat = "json"
-=======
-		Short: "Gets the thorchain version and build information",
-		Args:  cobra.ExactArgs(0),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cliCtx := context.NewCLIContext().WithCodec(cdc)
-			cliCtx.OutputFormat = "json"
->>>>>>> [feature] docker tag versioning
 
 			out := ver{
 				Version:   constants.SWVersion.String(),
 				GitCommit: constants.GitCommit,
 				BuildTime: constants.BuildTime,
 			}
-<<<<<<< HEAD
 			return clientCtx.PrintObjectLegacy(out)
-=======
-			return cliCtx.PrintOutput(out)
->>>>>>> [feature] docker tag versioning
 		},
 	}
 
