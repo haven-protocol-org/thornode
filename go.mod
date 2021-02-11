@@ -25,12 +25,14 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/hashicorp/go-multierror v1.1.0
 	github.com/hashicorp/go-retryablehttp v0.6.4
+	github.com/haven-protocol-org/monero-go-utils v0.0.0-20201217154754-ee3c5fc52cbf
 	github.com/ipfs/go-log v1.0.4
 	github.com/ltcsuite/ltcd v0.20.1-beta.0.20201210074626-c807bfe31ef0
 	github.com/ltcsuite/ltcutil v1.0.2-beta
 	github.com/magiconair/properties v1.8.4
 	github.com/multiformats/go-multiaddr v0.3.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
+	github.com/powerman/rpc-codec v1.2.2
 	github.com/prometheus/client_golang v1.8.0
 	github.com/rakyll/statik v0.1.7
 	github.com/rjeczalik/notify v0.9.2 // indirect
