@@ -39,22 +39,53 @@ func GetEd25519Keys() *cobra.Command {
 		Short: "Generate an ed25519 keys",
 		Long:  ``,
 		Args:  cobra.ExactArgs(0),
-		RunE:  ed25519Keys,
+		RunE:  getEd25519PubKey,
 	}
 	cmd.PersistentFlags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|test)")
 	viper.BindPFlag(flags.FlagKeyringBackend, cmd.Flags().Lookup(flags.FlagKeyringBackend))
 	return cmd
 }
 
-func ed25519Keys(cmd *cobra.Command, args []string) error {
-	buf := bufio.NewReader(cmd.InOrStdin())
-	password, err := input.GetPassword("Enter password", buf)
+func GetEd25519PrivKey() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ed25519Priv",
+		Short: "Generate an ed25519 keys",
+		Long:  ``,
+		Args:  cobra.ExactArgs(0),
+		RunE:  getEd25519PrivKey,
+	}
+	cmd.PersistentFlags().String(flags.FlagKeyringBackend, flags.DefaultKeyringBackend, "Select keyring's backend (os|file|test)")
+	viper.BindPFlag(flags.FlagKeyringBackend, cmd.Flags().Lookup(flags.FlagKeyringBackend))
+	return cmd
+}
+
+func getEd25519PubKey(cmd *cobra.Command, args []string) error {
+	_, pubKey, err := ed25519Keys(cmd, args)
 	if err != nil {
 		return err
 	}
+	fmt.Println(pubKey)
+	return nil
+}
+
+func getEd25519PrivKey(cmd *cobra.Command, args []string) error {
+	privKey, _, err := ed25519Keys(cmd, args)
+	if err != nil {
+		return err
+	}
+	fmt.Println(privKey)
+	return nil
+}
+
+func ed25519Keys(cmd *cobra.Command, args []string) (string, string, error) {
+	buf := bufio.NewReader(cmd.InOrStdin())
+	password, err := input.GetPassword("Enter password", buf)
+	if err != nil {
+		return "", "", err
+	}
 	db, err := keyring.Open(getKeyringConfig(sdk.KeyringServiceName(), app.DefaultNodeHome(appName), password))
 	if err != nil {
-		return fmt.Errorf("fail to open key store: %w", err)
+		return "", "", fmt.Errorf("fail to open key store: %w", err)
 	}
 	item, err := db.Get(DefaultEd25519KeyName)
 	if err != nil {
@@ -62,32 +93,31 @@ func ed25519Keys(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, keyring.ErrKeyNotFound) {
 			newItem, err := generateNewKey(buf)
 			if err != nil {
-				return fmt.Errorf("fail to create a new ED25519 key: %w", err)
+				return "", "", fmt.Errorf("fail to create a new ED25519 key: %w", err)
 			}
 			if err := db.Set(*newItem); err != nil {
-				return fmt.Errorf("fail to save ED25519 key: %w", err)
+				return "", "", fmt.Errorf("fail to save ED25519 key: %w", err)
 			}
 			item = *newItem
 		} else {
-			return fmt.Errorf("fail to get ED25519 key : %w", err)
+			return "", "", fmt.Errorf("fail to get ED25519 key : %w", err)
 		}
 	}
 	// now we test the ed25519 key can sign and verify
-	_, pk, err := edwards.PrivKeyFromScalar(edwards.Edwards(), item.Data)
+	privKey, pk, err := edwards.PrivKeyFromScalar(edwards.Edwards(), item.Data)
 	if err != nil {
-		return fmt.Errorf("fail to parse private key")
+		return "", "", fmt.Errorf("fail to parse private key")
 	}
 	pkey := ed25519.PubKey(pk.Serialize())
 	tmp, err := codec.FromTmPubKeyInterface(pkey)
 	if err != nil {
-		return fmt.Errorf("fail to get ED25519 key : %w", err)
+		return "", "", fmt.Errorf("fail to get ED25519 key : %w", err)
 	}
 	pubKey, err := sdk.Bech32ifyPubKey(sdk.Bech32PubKeyTypeAccPub, tmp)
 	if err != nil {
-		return fmt.Errorf("fail generate bech32 account pub key")
+		return "", "", fmt.Errorf("fail generate bech32 account pub key")
 	}
-	fmt.Println(pubKey)
-	return nil
+	return string(privKey.Serialize()), pubKey, nil
 }
 
 func generateNewKey(buf *bufio.Reader) (*keyring.Item, error) {
