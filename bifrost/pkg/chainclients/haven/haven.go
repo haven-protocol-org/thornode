@@ -596,6 +596,7 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		fee = tx.Rct_Signatures.TxnFee
 		feeAsset = "XHV"
 	}
+
 	// TODO: xasset fees will be proportionaly different than regular xhv fees. What thorchain does with these fees?
 	asset, err := common.NewAsset("XHV." + feeAsset + "-" + feeAsset)
 	if err != nil {
@@ -614,19 +615,11 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		return types.TxInItem{}, nil
 	}
 
-	var To string
-	if output.Address == hex.EncodeToString(c.pubSpendKey[:]) {
-		To = c.walletAddr
-	} else {
-		// TODO: how can we get the asgardex address
-		// To = AsgardDex Address
-	}
-
 	return types.TxInItem{
 		BlockHeight: height,
 		Tx:          tx.Hash,
 		Sender:      sender,
-		To:          To,
+		To:          output.Address,
 		Coins: common.Coins{
 			common.NewCoin(output.Coin, cosmos.NewUint(output.Amount)),
 		},
@@ -724,25 +717,21 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 					// Decode the amount
 					Amount := crypto.H2d(ecdhInfo.Amount)
 
+					// populate txVout
 					// Determine which vault vas the target
-					var derivedPublicSpendKey string
 					if found == "ygg" {
-						derivedPublicSpendKey = hex.EncodeToString(derivedPublicSpendKeyYgg[:])
+						txVout.Address = c.walletAddr
 					}
 					// else {
-					// 	derivedPublicSpendKey = hex.EncodeToString(derivedPublicSpendKeyAsgard[:])
+					// TODO: how can we get the asgardex address
+					// txVout.Address = asgardAddress
 					// }
-
-					// populate txVout
-					txVout.Address = derivedPublicSpendKey
 					txVout.Amount = Amount
 					asset, err := common.NewAsset("XHV." + assetType + "-" + assetType)
 					if err != nil {
 						return txVout, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
 					}
 					txVout.Coin = asset
-
-					c.logger.Info().Msgf("Successfully decoded the amoun!!")
 
 					// TODO: We can just skip the rest of the outputs and return here because we expect we only own 1 output
 					// What about in case of the change that get sent back to us??
