@@ -90,25 +90,30 @@ type VinEntry struct {
 	Offshore VinKey
 }
 
-type VoutKey struct {
-	Key      string
-	Offshore string
+type Target struct {
+	Key        string
+	Offshore   string
+	Xasset     string
+	asset_type string
 }
 
 type VoutEntry struct {
 	Amount int64
-	Target VoutKey
+	Target Target
 }
 
 type RctSignatures struct {
-	Type               int
-	TxnFee             int64
-	TxnFee_Usd         int64
-	TxnOffshoreFee     int64
-	TxnOffshoreFee_Usd int64
-	EcdhInfo           []map[string]string
-	OutPk              []string
-	OutPk_Usd          []string
+	Type                  int
+	TxnFee                int64
+	TxnFee_Usd            int64
+	TxnFee_Xasset         int64
+	TxnOffshoreFee        int64
+	TxnOffshoreFee_Usd    int64
+	TxnOffshoreFee_Xasset int64
+	EcdhInfo              []map[string]string
+	OutPk                 []string
+	OutPk_Usd             []string
+	OutPk_Xasset          []string
 }
 
 type RawTx struct {
@@ -153,54 +158,56 @@ type BroadcastTxResponse struct {
 
 // TODO: Merge GetHeight and GetVersion functions. They are the same.
 
-// GetHeight gets the height of the haven blockchain
-func GetHeight() (int64, error) {
+const IPAddress = "192.168.1.110"
 
+func getChainInfo() (GetInfoResult, error) {
 	// Connect to daemon RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:17750/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":27750/json_rpc")
 	defer clientHTTP.Close()
 
 	var reply GetInfoResult
 	var err error
 
-	// Get Height
+	// Get Info
 	err = clientHTTP.Call("get_info", nil, &reply)
 	if err == rpc.ErrShutdown || err == io.ErrUnexpectedEOF {
-		return 0, fmt.Errorf("Failed to get chain Info: %+v\n", err)
+		return reply, fmt.Errorf("Failed to get chain Info: %+v\n", err)
 	} else if err != nil {
 		rpcerr := jsonrpc2.ServerError(err)
-		return 0, fmt.Errorf("Failed to get chain Info: %+v\n", rpcerr)
+		return reply, fmt.Errorf("Failed to get chain Info: %+v\n", rpcerr)
 	}
 
-	return reply.Height, nil
+	return reply, nil
+}
+
+// GetHeight gets the height of the haven blockchain
+func GetHeight() (int64, error) {
+
+	chainInfo, err := getChainInfo()
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get chain height: %+v\n", err)
+	}
+
+	// daemon returns the height that is currently in process
+	// What we actually need is the last height
+	return chainInfo.Height - 1, nil
 }
 
 // GetVersion gets the version of the running haven daemon
 func GetVersion() (string, error) {
 
-	// Connect to daemon RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:17750/json_rpc")
-	defer clientHTTP.Close()
-
-	var reply GetInfoResult
-	var err error
-
-	// Get Height
-	err = clientHTTP.Call("get_info", nil, &reply)
-	if err == rpc.ErrShutdown || err == io.ErrUnexpectedEOF {
-		return "", fmt.Errorf("Failed to get chain Info: %+v\n", err)
-	} else if err != nil {
-		rpcerr := jsonrpc2.ServerError(err)
-		return "", fmt.Errorf("Failed to get chain Info: %+v\n", rpcerr)
+	chainInfo, err := getChainInfo()
+	if err != nil {
+		return "", fmt.Errorf("Failed to get chain height: %+v\n", err)
 	}
 
-	return reply.Version, nil
+	return chainInfo.Version, nil
 }
 
 func GetBlock(height int64) (Block, error) {
 
 	// Connect to daemon RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:27750/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":27750/json_rpc")
 	defer clientHTTP.Close()
 
 	req := map[string]int64{"height": height}
@@ -214,7 +221,11 @@ func GetBlock(height int64) (Block, error) {
 		return reply, fmt.Errorf("Failed to get block: %+v\n", err)
 	} else if err != nil {
 		rpcerr := jsonrpc2.ServerError(err)
-		return reply, fmt.Errorf("Failed to get block: %+v\n", rpcerr)
+		if rpcerr.Code == -2 {
+			reply, err = GetBlock(height - 1)
+		} else {
+			return reply, fmt.Errorf("Failed to get block: %+v\n", rpcerr)
+		}
 	}
 
 	return reply, err
@@ -227,7 +238,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 		return nil, fmt.Errorf("GetTxes() Marshaling request Error: %+v\n", err)
 	}
 
-	resp, err := http.Post("http://127.0.0.1:27750/get_transactions", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+IPAddress+":27750/get_transactions", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("GetTxes() Http Error: %+v\n", err)
 	}
@@ -275,7 +286,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 
 func GetPoolTxs() ([]string, error) {
 
-	resp, err := http.Get("http://127.0.0.1:27750/get_transaction_pool")
+	resp, err := http.Get("http://" + IPAddress + ":27750/get_transaction_pool")
 	if err != nil {
 		return nil, fmt.Errorf("GetPoolTxs() Marshaling request Error: %+v\n", err)
 	}
@@ -310,10 +321,10 @@ func GetPoolTxs() ([]string, error) {
 	return txs, nil
 }
 
-func CreateWallet(fileName string, address string, spendKey string, viewKey string, password string, autosave bool) bool {
+func CreateWallet(fileName string, address string, spendKey string, viewKey string, password string, autosave bool) error {
 
 	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	req := map[string]interface{}{"filename": fileName, "address": address, "spendkey": spendKey, "viewkey": viewKey, "password": password, "autosave_current": autosave}
@@ -329,21 +340,19 @@ func CreateWallet(fileName string, address string, spendKey string, viewKey stri
 	// create wallet on rpc
 	err = clientHTTP.Call("generate_from_keys", req, &reply)
 	if err == rpc.ErrShutdown || err == io.ErrUnexpectedEOF {
-		fmt.Errorf("Failed to generate wallet: %+v\n", err)
-		return false
+		return fmt.Errorf("RPC Error: %v\n", err)
 	} else if err != nil {
 		rpcerr := jsonrpc2.ServerError(err)
-		fmt.Errorf("Failed to generate wallet: %+v\n", rpcerr)
-		return false
+		return fmt.Errorf("RPC ServerError Error: %v\n", rpcerr)
 	}
 
-	return true
+	return nil
 }
 
 func OpenWallet(walletName string, password string) bool {
 
 	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	// create a request
@@ -371,14 +380,14 @@ func OpenWallet(walletName string, password string) bool {
 func CreateTx(dsts []map[string]interface{}, asset string, memo string) (CreatedTx, error) {
 
 	// Connect to Wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	// create a request
 	req := map[string]interface{}{
 		"destinations":    dsts,
 		"memo":            memo,
-		"priority":        0,
+		"priority":        1,
 		"ring_size":       11,
 		"get_tx_keys":     true,
 		"get_tx_hex":      true,
@@ -418,7 +427,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 		return reply
 	}
 
-	resp, err := http.Post("http://127.0.0.1:27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+IPAddress+":27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		reply.Status = "Http Error"
 		reply.Reason = fmt.Sprintf("%+v", err)
@@ -446,7 +455,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 
 func GetWalletAddress() (string, error) {
 	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://127.0.0.1:12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	type Reply struct {

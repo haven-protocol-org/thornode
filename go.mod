@@ -24,7 +24,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/hashicorp/go-multierror v1.1.0
 	github.com/hashicorp/go-retryablehttp v0.6.4
-	github.com/haven-protocol-org/monero-go-utils v0.0.0-20201217154754-ee3c5fc52cbf
+	github.com/haven-protocol-org/monero-go-utils v0.0.0-20210216120328-f7648ad7a4ff // indirect
 	github.com/ipfs/go-log v1.0.4
 	github.com/ltcsuite/ltcd v0.20.1-beta.0.20201210074626-c807bfe31ef0
 	github.com/ltcsuite/ltcutil v1.0.2-beta

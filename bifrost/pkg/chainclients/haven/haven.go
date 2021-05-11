@@ -2,6 +2,7 @@ package haven
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,22 +28,23 @@ import (
 
 // Client observes bitcoin chain and allows to sign and broadcast tx
 type Client struct {
-	logger            zerolog.Logger
-	cfg               config.ChainConfiguration
-	chain             common.Chain
-	privViewKey       [32]byte
-	privSpendKey      [32]byte
-	pubSpenKey        [32]byte
-	pubViewKey        [32]byte
-	processedMemPool  map[string]bool
-	memPoolLock       *sync.Mutex
-	lastMemPoolScan   time.Time
-	blockScanner      *blockscanner.BlockScanner
-	blockMetaAccessor BlockMetaAccessor
-	ksWrapper         *KeySignWrapper
-	bridge            *thorclient.ThorchainBridge
-	globalErrataQueue chan<- types.ErrataBlock
-	nodePubKey        common.PubKey
+	logger             zerolog.Logger
+	cfg                config.ChainConfiguration
+	chain              common.Chain
+	pubSpendKey        [32]byte
+	pubViewKey         [32]byte
+	walletAddr         string
+	processedMemPool   map[string]bool
+	memPoolLock        *sync.Mutex
+	lastMemPoolScan    time.Time
+	currentBlockHeight int64
+	blockScanner       *blockscanner.BlockScanner
+	blockMetaAccessor  BlockMetaAccessor
+	ksWrapper          *KeySignWrapper
+	bridge             *thorclient.ThorchainBridge
+	globalErrataQueue  chan<- types.ErrataBlock
+	asgardAddresses    []common.Address
+	nodePubKey         common.PubKey
 }
 
 type TxVout struct {
@@ -61,56 +63,57 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 	if err != nil {
 		return nil, fmt.Errorf("fail to create tss signer: %w", err)
 	}
-	thorPrivateKey, err := thorKeys.GetPrivateKey()
+
+	// Get thor keys
+	thorPriveKey, err := thorKeys.GetPrivateKey()
 	if err != nil {
 		return nil, fmt.Errorf("fail to get THORChain private key: %w", err)
 	}
-
-	privViewKey, privSpendKey := getHavenPrivateKey(thorPrivateKey)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("fail to convert private key for BTC: %w", err)
-	// }
-
-	// try to generate a haven wallet
-	pubSpenKey, pubViewKey, walletAddr, ok := generateHavenWallet(privViewKey, privSpendKey, "havenBifrost", "test")
-	if !ok {
-		return nil, fmt.Errorf("Fail to create a haven wallet!")
-	} else {
-		log.Logger.Info().Msgf("Haven Wallet created: ", walletAddr)
-	}
-
-	// try to login to wallet
-	if !loginToWallet("havenBifrost", "test") {
-		return nil, fmt.Errorf("Fail to open the haven wallet!")
-	} else {
-		log.Logger.Info().Msgf("Succesful login to local Haven ygg wallet!")
-	}
-
-	ksWrapper, err := NewKeySignWrapper(privViewKey, privSpendKey, bridge, tssKm)
-	if err != nil {
-		return nil, fmt.Errorf("fail to create keysign wrapper: %w", err)
-	}
-
-	temp, err := codec.ToTmPubKeyInterface(thorPrivateKey.PubKey())
+	temp, err := codec.ToTmPubKeyInterface(thorPriveKey.PubKey())
 	if err != nil {
 		return nil, fmt.Errorf("fail to get tm pub key: %w", err)
 	}
-	nodePubKey, err := common.NewPubKeyFromCrypto(temp)
+	thorPubkey, err := common.NewPubKeyFromCrypto(temp)
 	if err != nil {
 		return nil, fmt.Errorf("fail to get the node pubkey: %w", err)
 	}
 
+	// generate private keys for local haven wallet
+	havenPrivViewKey, havenPrivSpendKey := getHavenPrivateKey(thorPriveKey)
+
+	// try to generate a haven wallet
+	pubSpenKey, pubViewKey, walletAddr, err := generateHavenWallet(&havenPrivSpendKey, &havenPrivViewKey, thorPubkey, "havenBifrost", "passwd")
+	if err != nil {
+		return nil, fmt.Errorf("Fail to create a haven wallet: %+v", err)
+	} else {
+		log.Logger.Info().Msgf("Haven Wallet successfully created!", walletAddr)
+	}
+
+	// try to login to wallet
+	if !loginToWallet("havenBifrost", "passwd") {
+		return nil, fmt.Errorf("fail to open the haven wallet")
+	} else {
+		log.Logger.Info().Msgf("Succesful login to local Haven ygg wallet!")
+	}
+
+	// make a sign wrapper
+	ksWrapper, err := NewKeySignWrapper(havenPrivViewKey, havenPrivSpendKey, thorPubkey, tssKm)
+	if err != nil {
+		return nil, fmt.Errorf("fail to create keysign wrapper: %w", err)
+	}
+
 	c := &Client{
-		logger:       log.Logger.With().Str("module", "haven").Logger(),
-		cfg:          cfg,
-		chain:        cfg.ChainID,
-		privViewKey:  *privViewKey,
-		privSpendKey: *privSpendKey,
-		pubSpenKey:   pubSpenKey,
-		pubViewKey:   pubViewKey,
-		ksWrapper:    ksWrapper,
-		bridge:       bridge,
-		nodePubKey:   nodePubKey,
+		logger:           log.Logger.With().Str("module", "haven").Logger(),
+		cfg:              cfg,
+		chain:            cfg.ChainID,
+		pubSpendKey:      pubSpenKey,
+		pubViewKey:       pubViewKey,
+		ksWrapper:        ksWrapper,
+		bridge:           bridge,
+		nodePubKey:       thorPubkey,
+		walletAddr:       walletAddr,
+		memPoolLock:      &sync.Mutex{},
+		processedMemPool: make(map[string]bool),
 	}
 
 	var path string // if not set later, will in memory storage
@@ -132,6 +135,20 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 		return c, fmt.Errorf("fail to create utxo accessor: %w", err)
 	}
 	c.blockMetaAccessor = dbAccessor
+
+	// try to get the haven pool walletAddr by using thorPubkey.
+	// TODO activate this check once pubkey.GetAddress() implemented
+	// poolAddress, err := c.nodePubKey.GetAddress(common.XHVChain)
+	// if err != nil {
+	// 	c.logger.Err(err).Msg("fail to get local node's XHV address")
+	// }
+	// c.logger.Info().Msgf("local node XHV address %s", poolAddress)
+
+	// if c.walletAddr == poolAddress.String() {
+	// 	c.logger.Info().Msgf("Pool Adress matches with wallet address. Success!!")
+	// } else {
+	// 	return c, fmt.Errorf("Pool Adress doesn't match with the wallet we control. Failing..")
+	// }
 
 	return c, nil
 }
@@ -159,7 +176,11 @@ func (c *Client) GetChain() common.Chain {
 
 // GetHeight returns current block height
 func (c *Client) GetHeight() (int64, error) {
-	return GetHeight()
+	height, err := GetHeight()
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get height: %+v", err)
+	}
+	return height, nil
 }
 
 // GetAddress return current signer address, it will be bech32 encoded address
@@ -205,6 +226,83 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 		}, false), nil
 }
 
+func (c *Client) getCoinbaseValue(blockHeight int64) (int64, error) {
+
+	// define types to read the miner tx into
+	type minerTX struct {
+		Vout []map[string]interface{}
+	}
+	type bJson struct {
+		Miner_Tx minerTX
+	}
+
+	// get block
+	block, err := GetBlock(blockHeight)
+	if err != nil {
+		return 0, fmt.Errorf("fail to get block verbose tx: %w", err)
+	}
+
+	// parse the returned resutl
+	var result bJson
+	err = json.Unmarshal([]byte(block.Json), &result)
+	if err != nil {
+		return 0, fmt.Errorf("getCoinbaseValue() Unmarshaling Miner Tx Error: %+v\n", err)
+	}
+
+	// return the coinbase value as int64
+	//TODO:
+	amount := int64(33000000000000)
+	return amount, nil
+}
+
+// getBlockRequiredConfirmation find out how many confirmation the given txIn need to have before it can be send to THORChain
+func (c *Client) getBlockRequiredConfirmation(txIn types.TxIn, height int64) (int64, error) {
+	totalTxValue := txIn.GetTotalTransactionValue(common.XHVAsset, c.asgardAddresses)
+	totalFeeAndSubsidy, err := c.getCoinbaseValue(height)
+	if err != nil {
+		return totalFeeAndSubsidy, fmt.Errorf("fail to get coinbase value: %w", err)
+	}
+	confirm := totalTxValue.MulUint64(2).QuoUint64(uint64(totalFeeAndSubsidy)).Uint64()
+	c.logger.Info().Msgf("totalTxValue:%s,total fee and Subsidy:%d,confirmation:%d", totalTxValue, totalFeeAndSubsidy, confirm)
+	return int64(confirm), nil
+}
+
+// GetConfirmationCount return the number of blocks the tx need to wait before processing in THORChain
+func (c *Client) GetConfirmationCount(txIn types.TxIn) int64 {
+	if len(txIn.TxArray) == 0 {
+		return 0
+	}
+	// MemPool items doesn't need confirmation
+	if txIn.MemPool {
+		return 0
+	}
+	blockHeight := txIn.TxArray[0].BlockHeight
+	confirm, err := c.getBlockRequiredConfirmation(txIn, blockHeight)
+	c.logger.Info().Msgf("confirmation required: %d", confirm)
+	if err != nil {
+		c.logger.Err(err).Msg("fail to get block confirmation ")
+		return 0
+	}
+	return confirm
+}
+
+// ConfirmationCountReady will be called by observer before send the txIn to thorchain
+// confirmation counting is on block level
+func (c *Client) ConfirmationCountReady(txIn types.TxIn) bool {
+	if len(txIn.TxArray) == 0 {
+		return true
+	}
+	// MemPool items doesn't need confirmation
+	if txIn.MemPool {
+		return true
+	}
+	blockHeight := txIn.TxArray[0].BlockHeight
+	confirm := txIn.ConfirmationRequired
+	c.logger.Info().Msgf("confirmation required: %d", confirm)
+	// every tx in txIn already have at least 1 confirmation
+	return (c.currentBlockHeight - blockHeight) >= confirm
+}
+
 // OnObservedTxIn gets called from observer when we have a valid observation
 // For bitcoin chain client we want to save the utxo we can spend later to sign
 func (c *Client) OnObservedTxIn(txIn types.TxInItem, blockHeight int64) {
@@ -237,6 +335,7 @@ func (c *Client) FetchTxs(height int64) (types.TxIn, error) {
 	if err != nil {
 		return types.TxIn{}, fmt.Errorf("fail to get block: %w", err)
 	}
+	c.currentBlockHeight = height
 
 	// Check for reorg
 	if err := c.processReorg(block); err != nil {
@@ -424,6 +523,8 @@ func (c *Client) extractTxs(block Block) (types.TxIn, error) {
 	var txItems []types.TxInItem
 	for _, tx := range txs {
 
+		c.logger.Info().Msgf("Checkin Tx: %s", tx.Hash)
+
 		// remove from pool cache
 		c.removeFromMemPoolCache(tx.Hash)
 
@@ -434,7 +535,10 @@ func (c *Client) extractTxs(block Block) (types.TxIn, error) {
 			continue
 		}
 		if txInItem.IsEmpty() {
+			c.logger.Info().Msgf("Ignoring Tx with empty TxInItem: %s", tx.Hash)
 			continue
+		} else {
+			c.logger.Info().Msgf("TxInItem extracted from tx. Item: %+v", txInItem)
 		}
 
 		// append to txItems
@@ -456,7 +560,8 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	// get tx public key
 	var txPubKey [32]byte
 	if len(parsedTxExtra[1]) != 1 {
-		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx wit more than one tx key")
+		c.logger.Info().Msg("Ignoring a Tx wit more than one tx key")
+		return types.TxInItem{}, nil
 	}
 	copy(txPubKey[:], parsedTxExtra[1][0][0:32])
 
@@ -465,24 +570,39 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("Error Decrypting Tx Output: %w\n", err)
 	}
+	if output == (TxVout{}) {
+		// we couldn't decode any output from this tx. Which means we don't own any anyway.
+		c.logger.Info().Msg("Ignoring a Tx we don't own any output of")
+		return types.TxInItem{}, nil
+	}
 
 	// we don't know the sender
-	sender := ""
+	sender := "hvta8SzCkbTLNFDeJcRL51FrTci7YwGzLGHwJYukhCVAivU43WQVFde9c6n6WmZ8y5fDH3SwajsS5Yy3HUcfFCm63uF1eNspce"
 
 	// get the gas
 	var fee int64
+	var feeAsset string
 	if val, ok := parsedTxExtra[0x17]; ok {
-		if string(val[0]) != "N" {
+		offshoreData := strings.Split(string(val[0]), "-")
+		if offshoreData[0] == "XHV" {
 			fee = tx.Rct_Signatures.TxnFee
-		} else {
+		} else if offshoreData[0] == "XUSD" {
 			fee = tx.Rct_Signatures.TxnFee_Usd
+		} else {
+			fee = tx.Rct_Signatures.TxnFee_Xasset
 		}
+		feeAsset = offshoreData[0]
 	} else {
 		fee = tx.Rct_Signatures.TxnFee
+		feeAsset = "XHV"
 	}
-
+	// TODO: xasset fees will be proportionaly different than regular xhv fees. What thorchain does with these fees?
+	asset, err := common.NewAsset("XHV." + feeAsset + "-" + feeAsset)
+	if err != nil {
+		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
+	}
 	var gas = common.Gas{
-		common.NewCoin(common.BTCAsset, cosmos.NewUint((uint64(fee)))),
+		common.NewCoin(asset, cosmos.NewUint((uint64(fee)))),
 	}
 
 	// get the memo
@@ -490,16 +610,25 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	if val, ok := parsedTxExtra[0x18]; ok {
 		memo = string(val[0])
 	} else {
-		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx with no memo data!")
+		c.logger.Info().Msg("Ignoring a Tx with no memo data!")
+		return types.TxInItem{}, nil
+	}
+
+	var To string
+	if output.Address == hex.EncodeToString(c.pubSpendKey[:]) {
+		To = c.walletAddr
+	} else {
+		// TODO: how can we get the asgardex address
+		// To = AsgardDex Address
 	}
 
 	return types.TxInItem{
 		BlockHeight: height,
 		Tx:          tx.Hash,
 		Sender:      sender,
-		To:          output.Address,
+		To:          To,
 		Coins: common.Coins{
-			common.NewCoin(common.XHVAsset, cosmos.NewUint(output.Amount)),
+			common.NewCoin(output.Coin, cosmos.NewUint(output.Amount)),
 		},
 		Memo: memo,
 		Gas:  gas,
@@ -511,7 +640,7 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 	var txVout = TxVout{}
 
 	// generate the shared secrets for both ygg and asgard
-	sharedSecretYgg, err := crypto.GenerateKeyDerivation(txPubKey, &c.privViewKey)
+	sharedSecretYgg, err := crypto.GenerateKeyDerivation(txPubKey, &c.ksWrapper.privViewKey)
 	if err != nil {
 		return txVout, fmt.Errorf("Error Creating Ygg Shared Secret: %w\n", err)
 	}
@@ -528,12 +657,18 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 			targetRaw, _ := hex.DecodeString(vout.Target.Key)
 			copy(targetKey[:], targetRaw)
 			assetType = "XHV"
+		} else if len(vout.Target.Offshore) != 0 {
+			targetRaw, _ := hex.DecodeString(vout.Target.Offshore)
+			copy(targetKey[:], targetRaw)
+			assetType = "XUSD"
+		} else if len(vout.Target.Xasset) != 0 {
+			targetRaw, _ := hex.DecodeString(vout.Target.Xasset)
+			copy(targetKey[:], targetRaw)
+			assetType = vout.Target.asset_type
+		} else {
+			c.logger.Info().Msgf("Invalid tx output found! Skipping..")
+			continue
 		}
-		// else {
-		// 	targetRaw, _ := hex.DecodeString(vout.Target.Offshore)
-		// 	copy(targetKey[:], targetRaw)
-		// 	assetType = "xUSD"
-		// }
 
 		// derive the spent keys for both vaults
 		derivedPublicSpendKeyYgg, err := crypto.SubSecretFromTarget((*sharedSecretYgg)[:], uint64(ind), &targetKey)
@@ -545,20 +680,22 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 		// 	return txVout, fmt.Errorf("Error Deriving Asgard Public Spend Key: %w\n", err)
 		// }
 
-		// TODO: Check if the tss asgard keys functions are correct
 		found := ""
-		if *derivedPublicSpendKeyYgg == c.pubSpenKey {
+		if *derivedPublicSpendKeyYgg == c.pubSpendKey {
 			found = "ygg"
+			c.logger.Info().Msgf("found a output belongs to  = %s", hex.EncodeToString(c.pubSpendKey[:]))
+		} else {
+			c.logger.Info().Msgf("Error: derivedPubKey %s deoesn't match with %s", hex.EncodeToString((*derivedPublicSpendKeyYgg)[:]), hex.EncodeToString(c.pubSpendKey[:]))
 		}
 		// else if *derivedPublicSpendKeyAsgard == c.ksWrapper.tssKeyManager.getPubSpendKey() {
 		// 	found = "asgard"
 		// }
 
-		if len(found) == 0 {
+		if len(found) != 0 {
 			// decode the tx amount and mask
 			var scalar *[32]byte
 			if found == "ygg" {
-				scalar = crypto.DerivationToScalar(sharedSecretYgg[:], uint64(ind))
+				scalar = crypto.DerivationToScalar((*sharedSecretYgg)[:], uint64(ind))
 			}
 			// else {
 			// 	scalar = crypto.DerivationToScalar(sharedSecretAsgard[:], uint64(ind))
@@ -599,13 +736,22 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 					// populate txVout
 					txVout.Address = derivedPublicSpendKey
 					txVout.Amount = Amount
-					txVout.Coin = common.XHVAsset
+					asset, err := common.NewAsset("XHV." + assetType + "-" + assetType)
+					if err != nil {
+						return txVout, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
+					}
+					txVout.Coin = asset
 
-					// NOTE: We can just skip the rest of the outputs and return here because we expect we only own 1 output
+					c.logger.Info().Msgf("Successfully decoded the amoun!!")
+
+					// TODO: We can just skip the rest of the outputs and return here because we expect we only own 1 output
+					// What about in case of the change that get sent back to us??
 					return txVout, nil
+				} else {
+					c.logger.Info().Msgf("Invalid commitment for ouptut = %d  of tx %s skipiing..", ind, tx.Hash)
 				}
 			} else {
-				fmt.Errorf("Calculation of the commitment failed for output index = %d", ind)
+				c.logger.Info().Msgf("Calculation of the commitment failed for output index = %d of tx %s skipiing..", ind, tx.Hash)
 			}
 		}
 	}
@@ -707,14 +853,8 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 	// 	return nil, fmt.Errorf("fail to get source address: %w", err)
 	// }
 
-	// // get the wallet address
-	// walletAddr, err := GetWalletAddress()
-	// if err != {
-	// 	return nil, fmt.Errorf("fail to get wallet address: %w", err)
-	// }
-
 	// // check if they match or not
-	// if sourceAddr.String() != walletAddr {
+	// if sourceAddr.String() != c.walletAddr {
 	// 	return nil, errors.New("Source Address is not the haven wallet this node controls!")
 	// }
 
@@ -750,7 +890,7 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 }
 
 // BroadcastTx will broadcast the given payload to XHV chain
-func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) error {
+func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) (string, error) {
 
 	//TODO: payload type
 
@@ -788,7 +928,7 @@ func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) error {
 	// 	return fmt.Errorf("fail to broadcast transaction to chain: %s", resp.Reason)
 	// }
 
-	return nil
+	return "", nil
 }
 
 func (c *Client) parseTxExtra(extra []byte) (map[byte][][]byte, error) {
@@ -844,8 +984,6 @@ func (c *Client) parseTxExtra(extra []byte) (map[byte][][]byte, error) {
 			ba = extra[ind+2 : ind+2+length]
 			parsedTxExtra[0x18] = append(parsedTxExtra[0x18], ba)
 			ind += length
-		} else {
-			return nil, fmt.Errorf("fail to parse tx extra!")
 		}
 	}
 

@@ -233,3 +233,44 @@ func GetCmdSetNodeKeys() *cobra.Command {
 		},
 	}
 }
+
+// GetCmdSetCryptonoteKeys command to add a cryotonote keys
+func GetCmdSetCryptonoteKeys() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set-cryptonote-keys  [string]",
+		Short: "set cryptonote keys, the account use to sign this tx has to be whitelist first",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// clientCtx, err := client.GetClientTxContext(cmd)
+			// if err != nil {
+			// 	return err
+			// }
+
+			// ed25519PrivKey := []byte(args[0])
+
+			// // generate cryonote priv/pub keys
+			// var privSpendKey [32]byte
+			// var privViewdKey [32]byte
+			// var pubSpendKey [32]byte
+			// var temp [32]byte
+			// copy(temp[:], ed25519PrivKey)
+			// moneroCrypto.SecretFromSeed(&privSpendKey, &temp)
+			// moneroCrypto.ViewFromSpend(&privViewdKey, &privSpendKey)
+			// moneroCrypto.PublicFromSecret(&pubSpendKey, &privSpendKey)
+
+			// // generate crytonote data to be published
+			// var addData []byte
+			// addData = append(addData, privViewdKey[:]...)
+			// addData = append(addData, pubSpendKey[:]...)
+			// cryonoteData := hex.EncodeToString(addData)
+
+			// msg := types.NewMsgSetCryptonoteData(cryonoteData, clientCtx.GetFromAddress())
+			// err = msg.ValidateBasic()
+			// if err != nil {
+			// 	return err
+			// }
+			// return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			return nil
+		},
+	}
+}

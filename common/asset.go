@@ -20,8 +20,18 @@ var (
 	BCHAsset = Asset{Chain: BCHChain, Symbol: "BCH", Ticker: "BCH"}
 	// ETHAsset ETH
 	ETHAsset = Asset{Chain: ETHChain, Symbol: "ETH", Ticker: "ETH"}
-	// XHVAsset ETH
+	// XHVAsset XHV
 	XHVAsset = Asset{Chain: XHVChain, Symbol: "XHV", Ticker: "XHV"}
+	// XUSDAsset XHV
+	XUSDAsset = Asset{Chain: XHVChain, Symbol: "XUSD", Ticker: "XUSD"}
+	// XEURAsset XHV
+	XEURAsset = Asset{Chain: XHVChain, Symbol: "XEUR", Ticker: "XEUR"}
+	// XAUAsset XHV
+	XAUAsset = Asset{Chain: XHVChain, Symbol: "XAU", Ticker: "XAU"}
+	// XAGAsset XHV
+	XAGAsset = Asset{Chain: XHVChain, Symbol: "XAG", Ticker: "XAG"}
+	// XCNYAsset XHV
+	XCNYAsset = Asset{Chain: XHVChain, Symbol: "XCNY", Ticker: "XCNY"}
 	// Rune67CAsset RUNE on Binance test net
 	Rune67CAsset = Asset{Chain: BNBChain, Symbol: "RUNE-67C", Ticker: "RUNE"} // testnet asset on binance ganges
 	// RuneB1AAsset RUNE on Binance main net
