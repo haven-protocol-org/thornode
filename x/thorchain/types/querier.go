@@ -137,8 +137,9 @@ func NewQueryNodeAccount(na NodeAccount) QueryNodeAccount {
 
 // QueryVaultPubKeyContract is a type to combine PubKey and it's related contract
 type QueryVaultPubKeyContract struct {
-	PubKey  common.PubKey   `json:"pub_key"`
-	Routers []ChainContract `json:"routers"`
+	PubKey         common.PubKey   `json:"pub_key"`
+	Routers        []ChainContract `json:"routers"`
+	CryptonoteData string          `json:"cryptonote_data"`
 }
 
 // QueryVaultsPubKeys represent the result for query vaults pubkeys

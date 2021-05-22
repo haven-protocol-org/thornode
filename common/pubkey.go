@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -180,48 +181,43 @@ func (pubKey PubKey) GetAddress(chain Chain) (Address, error) {
 		return NewAddress(addr.String())
 	case XHVChain:
 
-		// getNodeData()
-		// get the crytonote data of other nodes
-
-		// FOR LOOP
-		// extract data
-		var cnData [96]byte
+		var cnData [64]byte
 		var privViewKey [32]byte
 		var pubSpendKey [32]byte
-		var nodePubKey string
-		var walletAddr string
 
-		if pubKey.String() == nodePubKey {
-
-			copy(privViewKey[:], cnData[:32])
-			copy(pubSpendKey[:], cnData[32:64])
-			// copy(nodePubKey[:], cnData[64:])
-
-			var pubViewKey [32]byte
-			moneroCrypto.PublicFromSecret(&pubViewKey, &privViewKey)
-
-			var addData []byte
-			addData = append(addData, pubSpendKey[:]...)
-			addData = append(addData, pubViewKey[:]...)
-
-			// generate the walletAddr
-			chainNetwork := GetCurrentChainNetwork()
-			var tag uint64
-			switch chainNetwork {
-			case MockNet:
-				// Haven testnet tag
-				tag = 0x59f4
-			case TestNet:
-				// Haven testnet tag
-				tag = 0x59f4
-			case MainNet:
-				// Haven mainnet tag
-				tag = 0x05af4
-			}
-			walletAddr = moneroCryptoBase58.EncodeAddr(tag, addData)
-			break
+		// get the crytonotedata
+		data, err := hex.DecodeString(string(pubKey))
+		if err != nil {
+			return NoAddress, fmt.Errorf("fail to decode the crytonotedata, err:%w", err)
 		}
-		// FOR LOOP
+		copy(cnData[:], data)
+
+		// split into privViewKey and pubSpendKey
+		copy(privViewKey[:], cnData[:32])
+		copy(pubSpendKey[:], cnData[32:])
+
+		// get the pubViewKey
+		var pubViewKey [32]byte
+		moneroCrypto.PublicFromSecret(&pubViewKey, &privViewKey)
+
+		// generate the walletAddr
+		var addData []byte
+		addData = append(addData, pubSpendKey[:]...)
+		addData = append(addData, pubViewKey[:]...)
+		chainNetwork := GetCurrentChainNetwork()
+		var tag uint64
+		switch chainNetwork {
+		case MockNet:
+			// Haven testnet tag
+			tag = 0x59f4
+		case TestNet:
+			// Haven testnet tag
+			tag = 0x59f4
+		case MainNet:
+			// Haven mainnet tag
+			tag = 0x05af4
+		}
+		walletAddr := moneroCryptoBase58.EncodeAddr(tag, addData)
 
 		return NewAddress(walletAddr)
 	}

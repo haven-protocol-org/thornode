@@ -121,6 +121,7 @@ var (
 	NewMsgLeave                    = types.NewMsgLeave
 	NewMsgSetVersion               = types.NewMsgSetVersion
 	NewMsgSetIPAddress             = types.NewMsgSetIPAddress
+	NewMsgSetCryptonoteData        = types.NewMsgSetCryptonoteData
 	NewMsgNetworkFee               = types.NewMsgNetworkFee
 	NewNetworkFee                  = types.NewNetworkFee
 	GetPoolStatus                  = types.GetPoolStatus
@@ -174,6 +175,7 @@ type (
 	MsgSwap                        = types.MsgSwap
 	MsgSetVersion                  = types.MsgSetVersion
 	MsgSetIPAddress                = types.MsgSetIPAddress
+	MsgSetCryptonoteData           = types.MsgSetCryptonoteData
 	MsgSetNodeKeys                 = types.MsgSetNodeKeys
 	MsgLeave                       = types.MsgLeave
 	MsgReserveContributor          = types.MsgReserveContributor

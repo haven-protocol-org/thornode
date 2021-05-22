@@ -156,8 +156,6 @@ type BroadcastTxResponse struct {
 	Untrusted           bool
 }
 
-// TODO: Merge GetHeight and GetVersion functions. They are the same.
-
 const IPAddress = "192.168.1.110"
 
 func getChainInfo() (GetInfoResult, error) {
@@ -204,7 +202,7 @@ func GetVersion() (string, error) {
 	return chainInfo.Version, nil
 }
 
-func GetBlock(height int64) (Block, error) {
+func GetBlock(height int64) (Block, jsonrpc2.Error) {
 
 	// Connect to daemon RPC server
 	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":27750/json_rpc")
@@ -213,22 +211,17 @@ func GetBlock(height int64) (Block, error) {
 	req := map[string]int64{"height": height}
 
 	var reply Block
-	var err error
+	var rpcerr jsonrpc2.Error
 
 	// Get Height
-	err = clientHTTP.Call("get_block", req, &reply)
+	err := clientHTTP.Call("get_block", req, &reply)
 	if err == rpc.ErrShutdown || err == io.ErrUnexpectedEOF {
-		return reply, fmt.Errorf("Failed to get block: %+v\n", err)
+		rpcerr.Message = "Connection is shutdown unexpectedly"
 	} else if err != nil {
-		rpcerr := jsonrpc2.ServerError(err)
-		if rpcerr.Code == -2 {
-			reply, err = GetBlock(height - 1)
-		} else {
-			return reply, fmt.Errorf("Failed to get block: %+v\n", rpcerr)
-		}
+		rpcerr = *(jsonrpc2.ServerError(err))
 	}
 
-	return reply, err
+	return reply, rpcerr
 }
 
 func GetTxes(txes []string) ([]RawTx, error) {

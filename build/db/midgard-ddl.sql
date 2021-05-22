@@ -223,6 +223,14 @@ CREATE TABLE set_ip_address_events (
 
 SELECT create_hypertable('set_ip_address_events', 'block_timestamp', chunk_time_interval => 86400000000000);
 
+CREATE TABLE set_cryptonote_data_events (
+	node_addr		    VARCHAR(44) NOT NULL,
+	cryptonote_data		VARCHAR(90) NOT NULL,
+	block_timestamp		BIGINT NOT NULL
+);
+
+SELECT create_hypertable('set_cryptonote_data_events', 'block_timestamp', chunk_time_interval => 86400000000000);
+
 
 CREATE TABLE set_node_keys_events (
 	node_addr   		VARCHAR(44) NOT NULL,

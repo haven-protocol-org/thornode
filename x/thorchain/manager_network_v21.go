@@ -53,6 +53,7 @@ func (vm *NetworkMgrV21) processGenesisSetup(ctx cosmos.Context) error {
 			common.BCHChain,
 			common.BNBChain,
 			common.ETHChain,
+			common.XHVChain,
 		}
 		vault := NewVault(0, ActiveVault, AsgardVault, active[0].PubKeySet.Secp256k1, supportChains.Strings(), vm.k.GetChainContracts(ctx, supportChains))
 		vault.Membership = common.PubKeys{active[0].PubKeySet.Secp256k1}.Strings()
