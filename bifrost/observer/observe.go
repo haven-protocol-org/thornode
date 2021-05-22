@@ -467,7 +467,7 @@ func (o *Observer) getThorchainTxIns(txIn types.TxIn) (stypes.ObservedTxs, error
 		}
 
 		o.logger.Debug().Msgf("pool pubkey %s", item.ObservedVaultPubKey)
-		chainAddr, _ := item.ObservedVaultPubKey.GetAddress(txIn.Chain)
+		chainAddr, err := item.ObservedVaultPubKey.GetAddress(txIn.Chain)
 		o.logger.Debug().Msgf("%s address %s", txIn.Chain.String(), chainAddr)
 		if err != nil {
 			o.errCounter.WithLabelValues("fail to parse observed pool address", item.ObservedVaultPubKey.String()).Inc()

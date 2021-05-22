@@ -89,6 +89,8 @@ func (c Chain) GetSigningAlgo() SigninAlgo {
 	switch c {
 	case BNBChain, ETHChain, BTCChain, THORChain:
 		return SigningAlgoSecp256k1
+	case XHVChain:
+		return SigningAlgoEd25519
 	default:
 		return SigningAlgoSecp256k1
 	}

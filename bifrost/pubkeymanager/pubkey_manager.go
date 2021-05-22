@@ -37,10 +37,11 @@ type PubKeyValidator interface {
 
 // pubKeyInfo is a struct to store pubkey information  in memory
 type pubKeyInfo struct {
-	PubKey      common.PubKey
-	Contacts    map[common.Chain]common.Address
-	Signer      bool
-	NodeAccount bool
+	PubKey         common.PubKey
+	Contacts       map[common.Chain]common.Address
+	Signer         bool
+	NodeAccount    bool
+	CryptonoteData string
 }
 
 // PubKeyManager manager an always up to date pubkeys , which implement PubKeyValidator interface
@@ -100,6 +101,7 @@ func (pkm *PubKeyManager) updateContractAddresses(pairs []thorclient.PubKeyContr
 		for idx, item := range pkm.pubkeys {
 			if item.PubKey == pair.PubKey {
 				pkm.pubkeys[idx].Contacts = pair.Contracts
+				pkm.pubkeys[idx].CryptonoteData = pair.CryptonoteData
 			}
 		}
 	}
@@ -298,7 +300,13 @@ func (pkm *PubKeyManager) IsValidPoolAddress(addr string, chain common.Chain) (b
 	defer pkm.rwMutex.RUnlock()
 
 	for _, pk := range pkm.pubkeys {
-		ok, cpi := matchAddress(addr, chain, pk.PubKey)
+		var ok bool
+		var cpi common.ChainPoolInfo
+		if chain == common.XHVChain {
+			ok, cpi = matchAddress(addr, chain, common.PubKey(pk.CryptonoteData))
+		} else {
+			ok, cpi = matchAddress(addr, chain, pk.PubKey)
+		}
 		if ok {
 			return ok, cpi
 		}

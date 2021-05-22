@@ -33,5 +33,6 @@ message Vault {
   int64 inbound_tx_count = 9;
   int64 outbound_tx_count = 10;
   repeated int64 pending_tx_block_heights = 11;
+  string cryptonote_data = 12;
   repeated types.ChainContract routers = 22 [(gogoproto.nullable) = false];
 }

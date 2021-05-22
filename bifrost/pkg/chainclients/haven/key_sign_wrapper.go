@@ -4,7 +4,6 @@ import (
 	"encoding/hex"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	moneroCryptoBase58 "github.com/haven-protocol-org/monero-go-utils/base58"
 	moneroCrypto "github.com/haven-protocol-org/monero-go-utils/crypto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -49,42 +48,24 @@ func getHavenPrivateKey(key cryptotypes.PrivKey) ([32]byte, [32]byte) {
 	return secretViewKey, secretSpendKey
 }
 
-func generateHavenWallet(privViewKey *[32]byte, privSpendKey *[32]byte, pubKey common.PubKey, walletName string, password string) ([32]byte, [32]byte, string, error) {
-	// generate pubKeys to return to client
-	// TODO: might be able to remove this. We don't really need to keep these public keys
+func generateHavenWallet(privSpendKey *[32]byte, privViewKey *[32]byte, walletName string, password string) ([32]byte, [32]byte, common.Address, error) {
+	// generate pubKeys
 	var pubSpendKey [32]byte
 	moneroCrypto.PublicFromSecret(&pubSpendKey, privSpendKey)
 	var pubViewKey [32]byte
 	moneroCrypto.PublicFromSecret(&pubViewKey, privViewKey)
 
-	// get address
-	// walletAddr, err := pubKey.GetAddress(common.XHVChain)
-	// if err != nil {
-	// 	return pubSpendKey, pubSpendKey, "", err
-	// }
-
-	// generate the walletAddr. Normally we would just the code commented out above. but pubKey.GetAddress is still not implemented yet.
-	var addData []byte
-	addData = append(addData, pubSpendKey[:]...)
-	addData = append(addData, pubViewKey[:]...)
-	chainNetwork := common.GetCurrentChainNetwork()
-	var tag uint64
-	switch chainNetwork {
-	case common.MockNet:
-		// Haven testnet tag
-		tag = 0x59f4
-	case common.TestNet:
-		// Haven testnet tag
-		tag = 0x59f4
-	case common.MainNet:
-		// Haven mainnet tag
-		tag = 0x05af4
+	// generate cryptonote data and get wallet address
+	var cnData []byte
+	cnData = append(cnData, privViewKey[:]...)
+	cnData = append(cnData, pubSpendKey[:]...)
+	walletAddr, err := common.PubKey(hex.EncodeToString(cnData)).GetAddress(common.XHVChain)
+	if err != nil {
+		return pubSpendKey, pubSpendKey, "", err
 	}
-	walletAddr := moneroCryptoBase58.EncodeAddr(tag, addData)
-	////////////////////////////////
 
 	// create the wallet
-	err := CreateWallet(walletName, walletAddr, hex.EncodeToString(privSpendKey[:]), hex.EncodeToString(privViewKey[:]), password, false)
+	err = CreateWallet(walletName, walletAddr.String(), hex.EncodeToString(privSpendKey[:]), hex.EncodeToString(privViewKey[:]), password, false)
 	if err != nil {
 		return pubSpendKey, pubSpendKey, walletAddr, err
 	} else {
