@@ -386,6 +386,7 @@ func CreateTx(dsts []map[string]interface{}, asset string, memo string) (Created
 		"get_tx_hex":      true,
 		"get_tx_metadata": true,
 		"do_not_relay":    true,
+		"asset_type":      asset,
 	}
 
 	var reply CreatedTx
@@ -394,8 +395,10 @@ func CreateTx(dsts []map[string]interface{}, asset string, memo string) (Created
 	// call the rpc method
 	if asset == "XHV" {
 		err = clientHTTP.Call("transfer_split", req, &reply)
-	} else {
+	} else if asset == "XUSD" {
 		err = clientHTTP.Call("offshore_transfer", req, &reply)
+	} else {
+		err = clientHTTP.Call("xasset_transfer", req, &reply)
 	}
 
 	// check for errors
@@ -413,7 +416,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 
 	var reply BroadcastTxResponse
 
-	requestBody, err := json.Marshal(map[string]interface{}{"tx_as_hex": txHash, "do_not_relay": false})
+	requestBody, err := json.Marshal(map[string]interface{}{"tx_as_hex": txHash})
 	if err != nil {
 		reply.Status = "Marshaling Request Error"
 		reply.Reason = fmt.Sprintf("%+v", err)
@@ -444,28 +447,4 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 	}
 
 	return reply
-}
-
-func GetWalletAddress() (string, error) {
-	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
-	defer clientHTTP.Close()
-
-	type Reply struct {
-		Address string
-	}
-
-	var reply Reply
-	var err error
-
-	// open wallet on rpc
-	err = clientHTTP.Call("get_address", nil, &reply)
-	if err == rpc.ErrShutdown || err == io.ErrUnexpectedEOF {
-		return "", fmt.Errorf("Failed to get wallet: %+v\n", err)
-	} else if err != nil {
-		rpcerr := jsonrpc2.ServerError(err)
-		return "", fmt.Errorf("Failed to open wallet: %+v\n", rpcerr)
-	}
-
-	return reply.Address, nil
 }

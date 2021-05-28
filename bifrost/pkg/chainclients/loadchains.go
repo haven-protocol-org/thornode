@@ -68,7 +68,7 @@ func LoadChains(thorKeys *thorclient.Keys,
 			pubKeyValidator.RegisterCallback(ltc.RegisterPublicKey)
 			chains[common.LTCChain] = ltc
 		case common.XHVChain:
-			xhv, err := haven.NewClient(thorKeys, chain, server, thorchainBridge, m)
+			xhv, err := haven.NewClient(thorKeys, chain, server, thorchainBridge, pubKeyValidator, m)
 			if err != nil {
 				logger.Fatal().Err(err).Str("chain_id", chain.ChainID.String()).Msg("fail to load chain")
 				continue

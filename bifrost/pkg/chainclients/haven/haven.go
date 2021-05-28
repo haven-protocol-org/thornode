@@ -3,6 +3,7 @@ package haven
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	btypes "gitlab.com/thorchain/thornode/bifrost/blockscanner/types"
+	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
 
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/haven-protocol-org/monero-go-utils/crypto"
@@ -26,6 +28,7 @@ import (
 	"gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
+	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
 	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 )
 
@@ -48,6 +51,8 @@ type Client struct {
 	globalErrataQueue  chan<- types.ErrataBlock
 	asgardAddresses    []common.Address
 	nodePubKey         common.PubKey
+	pkm                pubkeymanager.PubKeyValidator
+	lastSignedTxHash   string
 }
 
 type TxVout struct {
@@ -60,7 +65,7 @@ type TxVout struct {
 const BlockCacheSize = 100
 
 // NewClient generates a new Client
-func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server *tssp.TssServer, bridge *thorclient.ThorchainBridge, m *metrics.Metrics) (*Client, error) {
+func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server *tssp.TssServer, bridge *thorclient.ThorchainBridge, pkm pubkeymanager.PubKeyValidator, m *metrics.Metrics) (*Client, error) {
 
 	tssKm, err := tss.NewKeySign(server, bridge)
 	if err != nil {
@@ -111,6 +116,7 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 		pubViewKey:       pubViewKey,
 		ksWrapper:        ksWrapper,
 		bridge:           bridge,
+		pkm:              pkm,
 		nodePubKey:       thorPubkey,
 		walletAddr:       walletAddr,
 		memPoolLock:      &sync.Mutex{},
@@ -244,7 +250,7 @@ func (c *Client) getBlockRequiredConfirmation(txIn types.TxIn, height int64) (in
 		return totalFeeAndSubsidy, fmt.Errorf("fail to get coinbase value: %w", err)
 	}
 	confirm := totalTxValue.MulUint64(2).QuoUint64(uint64(totalFeeAndSubsidy)).Uint64()
-	// c.logger.Info().Msgf("totalTxValue:%s,total fee and Subsidy:%d,confirmation:%d", totalTxValue, totalFeeAndSubsidy, confirm)
+	c.logger.Info().Msgf("totalTxValue:%s,total fee and Subsidy:%d,confirmation:%d", totalTxValue, totalFeeAndSubsidy, confirm)
 	return int64(confirm), nil
 }
 
@@ -564,7 +570,6 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	// TODO: xasset fees can be proportionaly different than regular xhv fees??
 	// get the gas
 	var fee int64
-	var feeAsset string
 	if val, ok := parsedTxExtra[0x17]; ok {
 		offshoreData := strings.Split(string(val[0]), "-")
 		if offshoreData[0] == "XHV" {
@@ -574,21 +579,17 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		} else {
 			fee = tx.Rct_Signatures.TxnFee_Xasset
 		}
-		feeAsset = offshoreData[0]
 	} else {
 		fee = tx.Rct_Signatures.TxnFee
-		feeAsset = "XHV"
-	}
-	asset, err := common.NewAsset("XHV." + feeAsset + "-" + feeAsset)
-	if err != nil {
-		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
-	}
-	gas := common.Gas{
-		common.NewCoin(asset, cosmos.NewUint((uint64(fee)))),
 	}
 
 	// get the coins
-	asset, err = common.NewAsset("XHV." + output.Asset + "-" + output.Asset)
+	var asset common.Asset
+	if output.Asset == "XHV" {
+		asset, err = common.NewAsset("XHV." + output.Asset)
+	} else {
+		asset, err = common.NewAsset("XHV." + output.Asset + "-" + output.Asset)
+	}
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
 	}
@@ -611,7 +612,9 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		To:          output.Address,
 		Coins:       coins,
 		Memo:        memo,
-		Gas:         gas,
+		Gas: common.Gas{
+			common.NewCoin(common.XHVAsset, cosmos.NewUint((uint64(fee)))),
+		},
 	}, nil
 }
 
@@ -707,19 +710,15 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 	return txVout, nil
 }
 
-// isYggdrasil - when the pubkey and node pubkey is the same that means it is signing from yggdrasil
-func (c *Client) isAsgard(key common.PubKey) bool {
-	asgards, err := c.bridge.GetAsgards()
+func (c *Client) getAddrFromCndata(cnData string) (common.Address, error) {
+	if len(cnData) == 0 {
+		return common.NoAddress, fmt.Errorf("Can not get address from empty cn data")
+	}
+	walletAddr, err := common.PubKey(cnData).GetAddress(common.XHVChain)
 	if err != nil {
-		c.logger.Err(err).Msg("fail to get asgard vaults from thorchain")
-		return false
+		return "", fmt.Errorf("Failed to get the wallet address: %w", err)
 	}
-	for _, item := range asgards {
-		if item.PubKey.Equals(key) {
-			return true
-		}
-	}
-	return false
+	return walletAddr, nil
 }
 
 func (c *Client) removeFromMemPoolCache(hash string) {
@@ -790,92 +789,92 @@ func (c *Client) getMemPool(height int64) (types.TxIn, error) {
 func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, error) {
 
 	// check if the chain is correct
-	// if !tx.Chain.Equals(common.XHVChain) {
-	// 	return nil, errors.New("not XHV chain!")
-	// }
+	if !tx.Chain.Equals(common.XHVChain) {
+		return nil, errors.New("not XHV chain!")
+	}
 
-	// // get the from address
-	// sourceAddr, err := tx.VaultPubKey.GetAddress(common.XHVChain)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("fail to get source address: %w", err)
-	// }
+	if tx.ToAddress.IsEmpty() {
+		return nil, fmt.Errorf("to address is empty")
+	}
+	if tx.VaultPubKey.IsEmpty() {
+		return nil, fmt.Errorf("vault public key is empty")
+	}
 
-	// // check if they match or not
-	// if sourceAddr.String() != c.walletAddr {
-	// 	return nil, errors.New("Source Address is not the haven wallet this node controls!")
-	// }
+	if len(tx.Memo) == 0 {
+		return nil, fmt.Errorf("can't sign tx when it doesn't have memo")
+	}
+
+	memo, err := mem.ParseMemo(tx.Memo)
+	if err != nil {
+		return nil, fmt.Errorf("fail to parse memo(%s):%w", tx.Memo, err)
+	}
+
+	if memo.IsInbound() {
+		return nil, fmt.Errorf("inbound memo should not be used for outbound tx")
+	}
+
+	// get the walletAddr for tx vault Pubkey
+	vaultAddr, err := c.getAddrFromCndata(c.pkm.GetCnData(tx.VaultPubKey))
+	if err != nil {
+		return nil, fmt.Errorf("fail to get vaut adddress from tx vaultPubKey: %w", err)
+	}
 
 	// get the amount
-	// var amount uint64
-	// if len(tx.Coins) != 1 {
-	// 	return nil, errors.New("Haven doesn't support sending multiple asset types in a single transaction for now!")
-	// }
-	// amount = tx.Coins[0].Amount
-	// outputAsset = tx.Coins[0].Asset.Symbol
+	if len(tx.Coins) != 1 {
+		return nil, fmt.Errorf("Can't sing tx: Haven doesn't support sending multiple asset types in a single transaction!")
+	}
+	amount := tx.Coins[0].Amount.Uint64()
+	outputAsset := tx.Coins[0].Asset.Symbol.String()
 
-	// // create a dsts structure
-	// var dsts = make([]map[string]interface{}, 1)
-	// dsts[0]["amount"] = amount
-	// dsts[0]["address"] = tx.ToAddress.String()
+	var signedTx CreatedTx
+	if vaultAddr.Equals(c.walletAddr) {
+		// we are the one who signing this tx.
+		c.logger.Info().Msgf("Creating an outbound tx Amount: %d for %s", amount, tx.ToAddress.String())
 
-	// // check if we have create a tx from ygg
-	// if tx.VaultPubKey.Equals(c.nodePubKey) {
-	// 	signedTx, err := CreateTx(dsts, outputAsset, tx.Memo);
-	// } else if isAsgard(tx.VaultPubKey) {
-	// 	// Sign tx from asgard
-	// 	signable := c.ksWrapper.GetSignable(tx.VaultPubKey)
+		// create dsts array
+		keyVaule := make(map[string]interface{})
+		dsts := make([]map[string]interface{}, 1)
+		keyVaule["amount"] = amount
+		keyVaule["address"] = tx.ToAddress.String()
+		dsts[0] = keyVaule
 
-	// } else {
-	// 	return nil, errors.New("Unknow vault!")
-	// }
+		// sign tx
+		signedTx, err = CreateTx(dsts, outputAsset, tx.Memo)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// tss sign
+
+	}
 
 	// TODO: if we create multiple transactions we will have multiple Tx_Blobs. What should we do in that case. Concatanete them?
-	// Also don't forget we migth need to do hex.EncodeString() for each
-	// return signedTx.Tx_Blob_List[0], nil
-	var rt = make([]byte, 32)
-	return rt, nil
+	bytes, err := hex.DecodeString(signedTx.Tx_Blob_List[0])
+	if err != nil {
+		return nil, err
+	}
+	c.lastSignedTxHash = signedTx.Tx_Hash_List[0]
+	return bytes, nil
 }
 
 // BroadcastTx will broadcast the given payload to XHV chain
 func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) (string, error) {
 
-	//TODO: payload type
+	// get the hex of tx to send the daemon
+	txHex := hex.EncodeToString(payload)
 
-	// retrieve block meta
-	// chainBlockHeight, err := c.GetHeight()
-	// if err != nil {
-	// 	return fmt.Errorf("fail to get chain block height: %w", err)
-	// }
-	// blockMeta, err := c.blockMetaAccessor.GetBlockMeta(chainBlockHeight)
-	// if err != nil {
-	// 	return fmt.Errorf("fail to get block meta: %w", err)
-	// }
-	// if blockMeta == nil {
-	// 	blockMeta = NewBlockMeta("", chainBlockHeight, "")
-	// }
-	// err = c.updateBlockMeta(txOut, blockMeta, redeemTx)
-	// if err != nil {
-	// 	return fmt.Errorf("fail to update block meta: %s", err)
-	// }
+	// broadcast tx
+	resp := SendRawTransaction(txHex)
+	if resp.Status != "OK" {
+		// TODO: this is a fake reason text. Find the original and replace this.
+		if resp.Reason == "TX is alread in the chain" {
+			return "", nil
+		}
+		return "", fmt.Errorf("fail to broadcast transaction to chain: %s", resp.Reason)
+	}
 
-	// // broadcast tx
-	// resp := SendRawTransaction(payload)
-
-	// if resp.Status != "OK" {
-	// 	// TODO: this is a fake reason text. Find the original and replace this.
-	// 	if resp.Reason == "TX is alread in the chain" {
-	// 		return nil
-	// 	}
-
-	// 	// revert block meta
-	// 	err2 := c.revertBlockMeta(txOut, blockMeta, redeemTx)
-	// 	if err2 != nil {
-	// 		c.logger.Err(err2).Msg("fail to revert block meta")
-	// 	}
-	// 	return fmt.Errorf("fail to broadcast transaction to chain: %s", resp.Reason)
-	// }
-
-	return "", nil
+	c.logger.Info().Msgf("Succesfuuly submitted transaction to haven daemon hash: %s", c.lastSignedTxHash)
+	return c.lastSignedTxHash, nil
 }
 
 func (c *Client) parseTxExtra(extra []byte) (map[byte][][]byte, error) {
