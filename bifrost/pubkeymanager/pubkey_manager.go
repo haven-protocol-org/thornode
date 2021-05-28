@@ -33,6 +33,7 @@ type PubKeyValidator interface {
 	RegisterCallback(callback OnNewPubKey)
 	GetContracts(chain common.Chain) []common.Address
 	GetContract(chain common.Chain, pk common.PubKey) common.Address
+	GetCnData(pk common.PubKey) string
 }
 
 // pubKeyInfo is a struct to store pubkey information  in memory
@@ -340,6 +341,22 @@ func (pkm *PubKeyManager) GetContract(chain common.Chain, pubKey common.PubKey) 
 			continue
 		}
 		result = pk.Contacts[chain]
+	}
+	return result
+}
+
+// GetCnData return the cryotonote data (privViewKey + pubSpendKey) that match the given  pubkey
+func (pkm *PubKeyManager) GetCnData(pubKey common.PubKey) string {
+	pkm.rwMutex.RLock()
+	defer pkm.rwMutex.RUnlock()
+	var result string
+	for _, pk := range pkm.pubkeys {
+		if len(pk.CryptonoteData) == 0 {
+			continue
+		}
+		if pk.PubKey.Equals(pubKey) {
+			return pk.CryptonoteData
+		}
 	}
 	return result
 }

@@ -109,6 +109,8 @@ func (c Chain) GetGasAsset() Asset {
 		return BCHAsset
 	case ETHChain:
 		return ETHAsset
+	case XHVChain:
+		return XHVAsset
 	default:
 		return EmptyAsset
 	}
@@ -130,6 +132,8 @@ func (c Chain) AddressPrefix(cn ChainNetwork) string {
 			return chaincfg.RegressionNetParams.Bech32HRPSegwit
 		case LTCChain:
 			return ltcchaincfg.RegressionNetParams.Bech32HRPSegwit
+		case XHVChain:
+			return "hvt"
 		}
 	case TestNet:
 		switch c {
@@ -144,6 +148,8 @@ func (c Chain) AddressPrefix(cn ChainNetwork) string {
 			return chaincfg.TestNet3Params.Bech32HRPSegwit
 		case LTCChain:
 			return ltcchaincfg.TestNet4Params.Bech32HRPSegwit
+		case XHVChain:
+			return "hvt"
 		}
 	case MainNet:
 		switch c {
@@ -157,6 +163,8 @@ func (c Chain) AddressPrefix(cn ChainNetwork) string {
 			return chaincfg.MainNetParams.Bech32HRPSegwit
 		case LTCChain:
 			return ltcchaincfg.MainNetParams.Bech32HRPSegwit
+		case XHVChain:
+			return "hvx"
 		}
 	}
 	return ""
