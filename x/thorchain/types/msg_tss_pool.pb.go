@@ -26,15 +26,16 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type MsgTssPool struct {
-	ID         string                                        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	PoolPubKey gitlab_com_thorchain_thornode_common.PubKey   `protobuf:"bytes,2,opt,name=pool_pub_key,json=poolPubKey,proto3,casttype=gitlab.com/thorchain/thornode/common.PubKey" json:"pool_pub_key,omitempty"`
-	KeygenType KeygenType                                    `protobuf:"varint,3,opt,name=keygen_type,json=keygenType,proto3,enum=types.KeygenType,casttype=KeygenType" json:"keygen_type,omitempty"`
-	PubKeys    []string                                      `protobuf:"bytes,4,rep,name=pub_keys,json=pubKeys,proto3" json:"pub_keys,omitempty"`
-	Height     int64                                         `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
-	Blame      Blame                                         `protobuf:"bytes,6,opt,name=blame,proto3" json:"blame"`
-	Chains     []string                                      `protobuf:"bytes,7,rep,name=chains,proto3" json:"chains,omitempty"`
-	Signer     github_com_cosmos_cosmos_sdk_types.AccAddress `protobuf:"bytes,8,opt,name=signer,proto3,casttype=github.com/cosmos/cosmos-sdk/types.AccAddress" json:"signer,omitempty"`
-	KeygenTime int64                                         `protobuf:"varint,9,opt,name=keygen_time,json=keygenTime,proto3" json:"keygen_time,omitempty"`
+	ID             string                                        `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	PoolPubKey     gitlab_com_thorchain_thornode_common.PubKey   `protobuf:"bytes,2,opt,name=pool_pub_key,json=poolPubKey,proto3,casttype=gitlab.com/thorchain/thornode/common.PubKey" json:"pool_pub_key,omitempty"`
+	KeygenType     KeygenType                                    `protobuf:"varint,3,opt,name=keygen_type,json=keygenType,proto3,enum=types.KeygenType,casttype=KeygenType" json:"keygen_type,omitempty"`
+	PubKeys        []string                                      `protobuf:"bytes,4,rep,name=pub_keys,json=pubKeys,proto3" json:"pub_keys,omitempty"`
+	Height         int64                                         `protobuf:"varint,5,opt,name=height,proto3" json:"height,omitempty"`
+	Blame          Blame                                         `protobuf:"bytes,6,opt,name=blame,proto3" json:"blame"`
+	Chains         []string                                      `protobuf:"bytes,7,rep,name=chains,proto3" json:"chains,omitempty"`
+	Signer         github_com_cosmos_cosmos_sdk_types.AccAddress `protobuf:"bytes,8,opt,name=signer,proto3,casttype=github.com/cosmos/cosmos-sdk/types.AccAddress" json:"signer,omitempty"`
+	KeygenTime     int64                                         `protobuf:"varint,9,opt,name=keygen_time,json=keygenTime,proto3" json:"keygen_time,omitempty"`
+	CryptonoteData string
 }
 
 func (m *MsgTssPool) Reset()         { *m = MsgTssPool{} }

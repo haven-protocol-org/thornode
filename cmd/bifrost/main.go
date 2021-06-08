@@ -18,10 +18,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	flag "github.com/spf13/pflag"
-
-	"gitlab.com/thorchain/tss/go-tss/common"
-	"gitlab.com/thorchain/tss/go-tss/tss"
-
 	"gitlab.com/thorchain/thornode/app"
 	"gitlab.com/thorchain/thornode/bifrost/config"
 	"gitlab.com/thorchain/thornode/bifrost/metrics"
@@ -33,6 +29,11 @@ import (
 	"gitlab.com/thorchain/thornode/cmd"
 	tcommon "gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/common/cosmos"
+	"gitlab.com/thorchain/tss/go-tss/common"
+	"gitlab.com/thorchain/tss/go-tss/tss"
+
+	mnTssCommon "github.com/akildemir/moneroTss/common"
+	mnTss "github.com/akildemir/moneroTss/tss"
 )
 
 // THORNode define version / revision here , so THORNode could inject the version from CI pipeline if THORNode want to
@@ -114,7 +115,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to get private key")
 	}
-
 	bootstrapPeers, err := cfg.TSS.GetBootstrapPeers()
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to get bootstrap peers")
@@ -137,11 +137,34 @@ func main() {
 		cfg.TSS.ExternalIP,
 	)
 	if err != nil {
-		log.Fatal().Err(err).Msg("fail to create tss instance")
+		log.Fatal().Err(err).Msg("fail to create normal tss instance")
+	}
+	if err := tssIns.Start(); err != nil {
+		log.Err(err).Msg("fail to start normal tss instance")
 	}
 
-	if err := tssIns.Start(); err != nil {
-		log.Err(err).Msg("fail to start tss instance")
+	// set up monero TSS signing
+	mnTssIns, err := mnTss.NewTss(
+		bootstrapPeers,
+		cfg.TSS.P2PPort,
+		tmPrivateKey,
+		cfg.TSS.Rendezvous,
+		app.DefaultNodeHome(""),
+		mnTssCommon.TssConfig{
+			EnableMonitor:   true,
+			KeyGenTimeout:   240 * time.Second, // must be shorter than cosntants.JailTimeKeygen
+			KeySignTimeout:  180 * time.Second, // must be shorter than constants.JailTimeKeysign
+			PartyTimeout:    30 * time.Second,
+			PreParamTimeout: 5 * time.Minute,
+		},
+		getLocalPreParam(*tssPreParam),
+		cfg.TSS.ExternalIP,
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("fail to create monero tss instance")
+	}
+	if err := mnTssIns.Start(); err != nil {
+		log.Err(err).Msg("fail to start monero tss instance")
 	}
 
 	healthServer := NewHealthServer(cfg.TSS.InfoAddress, tssIns)
@@ -175,7 +198,7 @@ func main() {
 		}
 	}
 	poolMgr := thorclient.NewPoolMgr(thorchainBridge)
-	chains := chainclients.LoadChains(k, cfg.Chains, tssIns, thorchainBridge, m, pubkeyMgr, poolMgr)
+	chains := chainclients.LoadChains(k, cfg.Chains, tssIns, mnTssIns, thorchainBridge, m, pubkeyMgr, poolMgr)
 	if len(chains) == 0 {
 		log.Fatal().Msg("fail to load any chains")
 	}
@@ -190,7 +213,7 @@ func main() {
 	}
 
 	// start signer
-	sign, err := signer.NewSigner(cfg.Signer, thorchainBridge, k, pubkeyMgr, tssIns, chains, m, tssKeysignMetricMgr)
+	sign, err := signer.NewSigner(cfg.Signer, thorchainBridge, k, pubkeyMgr, tssIns, mnTssIns, chains, m, tssKeysignMetricMgr)
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to create instance of signer")
 	}
@@ -217,6 +240,8 @@ func main() {
 	if err := healthServer.Stop(); err != nil {
 		log.Fatal().Err(err).Msg("fail to stop health server")
 	}
+	// stop monero Tss
+	mnTssIns.Stop()
 }
 
 func initPrefix() {

@@ -1,6 +1,7 @@
 package chainclients
 
 import (
+	mnTss "github.com/akildemir/moneroTss/tss"
 	"github.com/rs/zerolog/log"
 	"gitlab.com/thorchain/tss/go-tss/tss"
 
@@ -20,6 +21,7 @@ import (
 func LoadChains(thorKeys *thorclient.Keys,
 	cfg []config.ChainConfiguration,
 	server *tss.TssServer,
+	mnServer *mnTss.TssServer,
 	thorchainBridge *thorclient.ThorchainBridge,
 	m *metrics.Metrics,
 	pubKeyValidator pubkeymanager.PubKeyValidator,
@@ -68,7 +70,7 @@ func LoadChains(thorKeys *thorclient.Keys,
 			pubKeyValidator.RegisterCallback(ltc.RegisterPublicKey)
 			chains[common.LTCChain] = ltc
 		case common.XHVChain:
-			xhv, err := haven.NewClient(thorKeys, chain, server, thorchainBridge, pubKeyValidator, m)
+			xhv, err := haven.NewClient(thorKeys, chain, mnServer, thorchainBridge, pubKeyValidator, m)
 			if err != nil {
 				logger.Fatal().Err(err).Str("chain_id", chain.ChainID.String()).Msg("fail to load chain")
 				continue

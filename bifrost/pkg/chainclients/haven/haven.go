@@ -1,6 +1,7 @@
 package haven
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,9 @@ import (
 
 	btypes "gitlab.com/thorchain/thornode/bifrost/blockscanner/types"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
+	"gitlab.com/thorchain/tss/monero-wallet-rpc/wallet"
 
+	tssp "github.com/akildemir/moneroTss/tss"
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/haven-protocol-org/monero-go-utils/crypto"
 	"github.com/powerman/rpc-codec/jsonrpc2"
@@ -29,7 +32,6 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
 	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
-	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 )
 
 // Client observes bitcoin chain and allows to sign and broadcast tx
@@ -53,6 +55,7 @@ type Client struct {
 	nodePubKey         common.PubKey
 	pkm                pubkeymanager.PubKeyValidator
 	lastSignedTxHash   string
+	tssKm              tss.ThorchainKeyManager
 }
 
 type TxVout struct {
@@ -67,7 +70,7 @@ const BlockCacheSize = 100
 // NewClient generates a new Client
 func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server *tssp.TssServer, bridge *thorclient.ThorchainBridge, pkm pubkeymanager.PubKeyValidator, m *metrics.Metrics) (*Client, error) {
 
-	tssKm, err := tss.NewKeySign(server, bridge)
+	tssKm, err := tss.NewKeySignMn(server, bridge, common.XHVChain)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create tss signer: %w", err)
 	}
@@ -120,6 +123,7 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 		nodePubKey:       thorPubkey,
 		walletAddr:       walletAddr,
 		memPoolLock:      &sync.Mutex{},
+		tssKm:            tssKm,
 		processedMemPool: make(map[string]bool),
 	}
 
@@ -845,7 +849,38 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 		}
 	} else {
 		// tss sign
+		dst := wallet.Destination{
+			Amount:  amount,
+			Address: tx.ToAddress.String(),
+		}
+		t := wallet.RequestTransfer{
+			Destinations:  []*wallet.Destination{&dst},
+			GetTxHex:      true,
+			RingSize:      11,
+			GetTxKey:      true,
+			GetTxMetadata: true,
+		}
+		tx, err := json.Marshal(t)
+		if err != nil {
+			return nil, err
+		}
+		encodedTx := base64.StdEncoding.EncodeToString(tx)
+		txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), "192.168.1.110")
+		if err != nil {
+			return nil, err
+		}
 
+		// at this point we expect RemoteSignMn() to complete tx construction and submit to haven daemon.
+		// But we don't know who signed this tx and whether it is actually correct amount.
+		// so check whether it is or not. If not, send error.
+		// walletClient.CheckTxKry() is the function
+
+		// concatanete and return the txKey + txID
+		res, err := hex.DecodeString(txKey + txID)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
 
 	// TODO: if we create multiple transactions we will have multiple Tx_Blobs. What should we do in that case. Concatanete them?
@@ -862,6 +897,12 @@ func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) (string, er
 
 	// get the hex of tx to send the daemon
 	txHex := hex.EncodeToString(payload)
+
+	if len(txHex) == 64 {
+		// this is a tx proof coming from TSS signing instead of tx itself, so return itself directly
+		c.logger.Info().Msgf("Recieved a TSS tx subnistion. Tx must be already submitted. TxKey + TxID: %s", txHex)
+		return txHex, nil
+	}
 
 	// broadcast tx
 	resp := SendRawTransaction(txHex)

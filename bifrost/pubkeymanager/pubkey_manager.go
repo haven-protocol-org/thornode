@@ -34,6 +34,7 @@ type PubKeyValidator interface {
 	GetContracts(chain common.Chain) []common.Address
 	GetContract(chain common.Chain, pk common.PubKey) common.Address
 	GetCnData(pk common.PubKey) string
+	UpdateCnDataOfPubKey(pk common.PubKey, cnData string)
 }
 
 // pubKeyInfo is a struct to store pubkey information  in memory
@@ -359,4 +360,13 @@ func (pkm *PubKeyManager) GetCnData(pubKey common.PubKey) string {
 		}
 	}
 	return result
+}
+
+// UpdateCnDataOfPubKey updates the cryptonote data of the given public key if it exist
+func (pkm *PubKeyManager) UpdateCnDataOfPubKey(pk common.PubKey, cnData string) {
+	for idx, pubkey := range pkm.pubkeys {
+		if pk.Equals(pubkey.PubKey) {
+			pkm.pubkeys[idx].CryptonoteData = cnData
+		}
+	}
 }

@@ -243,8 +243,8 @@ func (b *ThorchainBridge) GetErrataMsg(txID common.TxID, chain common.Chain) sdk
 }
 
 // GetKeygenStdTx get keygen tx from params
-func (b *ThorchainBridge) GetKeygenStdTx(poolPubKey common.PubKey, blame stypes.Blame, inputPks common.PubKeys, keygenType stypes.KeygenType, chains common.Chains, height, keygenTime int64) sdk.Msg {
-	return stypes.NewMsgTssPool(inputPks.Strings(), poolPubKey, keygenType, height, blame, chains.Strings(), b.keys.GetSignerInfo().GetAddress(), keygenTime)
+func (b *ThorchainBridge) GetKeygenStdTx(poolPubKey common.PubKey, cnData string, blame stypes.Blame, inputPks common.PubKeys, keygenType stypes.KeygenType, chains common.Chains, height, keygenTime int64) sdk.Msg {
+	return stypes.NewMsgTssPool(inputPks.Strings(), poolPubKey, cnData, keygenType, height, blame, chains.Strings(), b.keys.GetSignerInfo().GetAddress(), keygenTime)
 }
 
 // GetObservationsStdTx get observations tx from txIns

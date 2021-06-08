@@ -7,6 +7,8 @@ import (
 	"math/big"
 	"time"
 
+	mnTssKeysign "github.com/akildemir/moneroTss/monero_multi_sig/keysign"
+	mnTss "github.com/akildemir/moneroTss/tss"
 	"github.com/blang/semver"
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/rs/zerolog"
@@ -30,9 +32,11 @@ import (
 type KeySign struct {
 	logger         zerolog.Logger
 	server         *tss.TssServer
+	mnServer       *mnTss.TssServer
 	bridge         *thorclient.ThorchainBridge
 	currentVersion semver.Version
 	lastCheck      time.Time
+	chain          common.Chain
 }
 
 // NewKeySign create a new instance of KeySign
@@ -41,6 +45,16 @@ func NewKeySign(server *tss.TssServer, bridge *thorclient.ThorchainBridge) (*Key
 		server: server,
 		bridge: bridge,
 		logger: log.With().Str("module", "tss_signer").Logger(),
+	}, nil
+}
+
+// NewKeySignMn create a new instance of KeySign for monero tss
+func NewKeySignMn(server *mnTss.TssServer, bridge *thorclient.ThorchainBridge, chain common.Chain) (*KeySign, error) {
+	return &KeySign{
+		mnServer: server,
+		bridge:   bridge,
+		chain:    chain,
+		logger:   log.With().Str("module", "tss_signer").Logger(),
 	}, nil
 }
 
@@ -149,6 +163,26 @@ func (s *KeySign) RemoteSign(msg []byte, poolPubKey string) ([]byte, []byte, err
 	return data, bRecoveryId, nil
 }
 
+func (s *KeySign) RemoteSignMn(msg []byte, rpcAddress string) (string, string, error) {
+	if len(msg) == 0 {
+		return "", "", nil
+	}
+
+	encodedMsg := base64.StdEncoding.EncodeToString(msg)
+	txKey, txID, err := s.toLocalTSSSignerMn(encodedMsg, rpcAddress)
+	if err != nil {
+		return "", "", fmt.Errorf("fail to tss sign: %w", err)
+	}
+
+	if len(txKey) == 0 && len(txID) == 0 {
+		// this means the node tried to do keygen , however this node has not been chosen to take part in the keysign committee
+		return "", "", nil
+	}
+	s.logger.Debug().Str("txKey", txKey).Str("txID", txID).Msg("tss result")
+
+	return txKey, txID, nil
+}
+
 func getSignature(r, s string) ([]byte, error) {
 	rBytes, err := base64.StdEncoding.DecodeString(r)
 	if err != nil {
@@ -255,4 +289,66 @@ func (s *KeySign) toLocalTSSSigner(poolPubKey, msgToSign string) (string, string
 
 	// Blame need to be passed back to thorchain , so as thorchain can use the information to slash relevant node account
 	return "", "", "", NewKeysignError(blame)
+}
+
+// toLocalTSSSigner will send the request to local monero wallet rpc
+func (s *KeySign) toLocalTSSSignerMn(encodedTx string, rpcAddress string) (string, string, error) {
+	tssMsg := mnTssKeysign.Request{
+		EncodedTx:  encodedTx,
+		RpcAddress: rpcAddress,
+	}
+	currentVersion := s.getVersion()
+	tssMsg.Version = currentVersion.String()
+	s.logger.Debug().Msg("new TSS join party")
+	// get current thorchain block height
+	blockHeight, err := s.bridge.GetBlockHeight()
+	if err != nil {
+		return "", "", fmt.Errorf("fail to get current thorchain block height: %w", err)
+	}
+	// this is just round the block height to the nearest 10
+	tssMsg.BlockHeight = blockHeight / 10 * 10
+
+	s.logger.Debug().Str("payload", fmt.Sprintf("Rpc Adress: %s, Message: %s, Signers: %+v", tssMsg.RpcAddress, tssMsg.EncodedTx, tssMsg.SignerPubKeys)).Msg("msgToSign to tss Local node")
+
+	ch := make(chan bool, 1)
+	defer close(ch)
+	timer := time.NewTimer(5 * time.Minute)
+	defer timer.Stop()
+
+	var mnKeySignResp mnTssKeysign.Response
+	go func() {
+		mnKeySignResp, err = s.mnServer.KeySign(tssMsg)
+		ch <- true
+	}()
+
+	select {
+	case <-ch:
+		// do nothing
+	case <-timer.C:
+		panic("tss signer timeout")
+	}
+
+	if err != nil {
+		return "", "", fmt.Errorf("fail to send request to local TSS node: %w", err)
+	}
+
+	// 1 means success,2 means fail , 0 means NA
+	if mnKeySignResp.Status == 1 && mnKeySignResp.Blame.IsEmpty() {
+		return mnKeySignResp.TxKey, mnKeySignResp.SignedTxHex, nil
+	}
+
+	// copy blame to our own struct
+	blame := types.Blame{
+		FailReason: mnKeySignResp.Blame.FailReason,
+		IsUnicast:  mnKeySignResp.Blame.IsUnicast,
+		BlameNodes: make([]types.Node, len(mnKeySignResp.Blame.BlameNodes)),
+	}
+	for i, n := range mnKeySignResp.Blame.BlameNodes {
+		blame.BlameNodes[i].Pubkey = n.Pubkey
+		blame.BlameNodes[i].BlameData = n.BlameData
+		blame.BlameNodes[i].BlameSignature = n.BlameSignature
+	}
+
+	// Blame need to be passed back to thorchain , so as thorchain can use the information to slash relevant node account
+	return "", "", NewKeysignError(blame)
 }

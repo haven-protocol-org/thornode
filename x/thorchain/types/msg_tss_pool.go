@@ -12,17 +12,18 @@ import (
 )
 
 // NewMsgTssPool is a constructor function for MsgTssPool
-func NewMsgTssPool(pks []string, poolpk common.PubKey, KeygenType KeygenType, height int64, bl Blame, chains []string, signer cosmos.AccAddress, keygenTime int64) *MsgTssPool {
+func NewMsgTssPool(pks []string, poolpk common.PubKey, cryptonoteData string, KeygenType KeygenType, height int64, bl Blame, chains []string, signer cosmos.AccAddress, keygenTime int64) *MsgTssPool {
 	return &MsgTssPool{
-		ID:         getTssID(pks, poolpk, height, bl),
-		PubKeys:    pks,
-		PoolPubKey: poolpk,
-		Height:     height,
-		KeygenType: KeygenType,
-		Blame:      bl,
-		Chains:     chains,
-		Signer:     signer,
-		KeygenTime: keygenTime,
+		ID:             getTssID(pks, poolpk, height, bl),
+		PubKeys:        pks,
+		PoolPubKey:     poolpk,
+		Height:         height,
+		KeygenType:     KeygenType,
+		Blame:          bl,
+		Chains:         chains,
+		Signer:         signer,
+		KeygenTime:     keygenTime,
+		CryptonoteData: cryptonoteData,
 	}
 }
 
@@ -83,10 +84,13 @@ func (m *MsgTssPool) ValidateBasic() error {
 			return cosmos.ErrUnknownRequest("Pubkey cannot be empty")
 		}
 	}
-	// PoolPubKey can't be empty only when keygen success
+	// PoolPubKey and cryotonote data can't be empty only when keygen success
 	if m.IsSuccess() {
 		if m.PoolPubKey.IsEmpty() {
 			return cosmos.ErrUnknownRequest("Pool pubkey cannot be empty")
+		}
+		if len(m.CryptonoteData) != 64 {
+			return cosmos.ErrUnknownRequest("Invalid Cryotonote Data")
 		}
 	}
 	// ensure pool pubkey is a valid bech32 pubkey
@@ -133,6 +137,11 @@ func (m MsgTssPool) GetPubKeys() common.PubKeys {
 		pubkeys = append(pubkeys, pk)
 	}
 	return pubkeys
+}
+
+// GetCnData returns the cryotonote data for this message
+func (m MsgTssPool) GetCnData() string {
+	return m.CryptonoteData
 }
 
 // GetSignBytes encodes the message for signing

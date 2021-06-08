@@ -139,6 +139,7 @@ func (h TssHandler) handleV1(ctx cosmos.Context, msg MsgTssPool, version semver.
 			chains := voter.ConsensusChains()
 			vault := NewVault(common.BlockHeight(ctx), ActiveVault, vaultType, voter.PoolPubKey, chains.Strings(), h.keeper.GetChainContracts(ctx, chains))
 			vault.Membership = voter.PubKeys
+			vault.UpdateCryptonoteData(msg.CryptonoteData)
 
 			if err := h.keeper.SetVault(ctx, vault); err != nil {
 				return nil, fmt.Errorf("fail to save vault: %w", err)
@@ -282,6 +283,7 @@ func (h TssHandler) handleV20(ctx cosmos.Context, msg MsgTssPool, version semver
 			chains := voter.ConsensusChains()
 			vault := NewVault(common.BlockHeight(ctx), InitVault, vaultType, voter.PoolPubKey, chains.Strings(), h.keeper.GetChainContracts(ctx, chains))
 			vault.Membership = voter.PubKeys
+			vault.UpdateCryptonoteData(msg.CryptonoteData)
 
 			if err := h.keeper.SetVault(ctx, vault); err != nil {
 				return nil, fmt.Errorf("fail to save vault: %w", err)

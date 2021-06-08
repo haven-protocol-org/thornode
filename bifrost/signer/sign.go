@@ -1,12 +1,15 @@
 package signer
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
 	"sync"
 	"time"
 
+	mnTssp "github.com/akildemir/moneroTss/tss"
+	moneroCryptoBase58 "github.com/haven-protocol-org/monero-go-utils/base58"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -52,6 +55,7 @@ func NewSigner(cfg config.SignerConfiguration,
 	thorKeys *thorclient.Keys,
 	pubkeyMgr pubkeymanager.PubKeyValidator,
 	tssServer *tssp.TssServer,
+	mnTssServer *mnTssp.TssServer,
 	chains map[common.Chain]chainclients.ChainClient,
 	m *metrics.Metrics,
 	tssKeysignMetricMgr *metrics.TssKeysignMetricMgr) (*Signer, error) {
@@ -97,7 +101,7 @@ func NewSigner(cfg config.SignerConfiguration,
 		return nil, fmt.Errorf("fail to create block scanner: %w", err)
 	}
 
-	kg, err := tss.NewTssKeyGen(thorKeys, tssServer, thorchainBridge)
+	kg, err := tss.NewTssKeyGen(thorKeys, tssServer, mnTssServer, thorchainBridge)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create Tss Key gen,err:%w", err)
 	}
@@ -261,6 +265,12 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 					err := fmt.Errorf("reason: %s, nodes %+v", blame.FailReason, blame.BlameNodes)
 					s.logger.Error().Err(err).Msg("Blame")
 				}
+				// generate keys for haven/monero
+				poolAddress, viewKey, blame, err := s.tssKeygen.GenerateNewMnKey(keygenReq.GetMembers(), "192.168.1.10")
+				if !blame.IsEmpty() {
+					err := fmt.Errorf("reason: %s, nodes %+v", blame.FailReason, blame.BlameNodes)
+					s.logger.Error().Err(err).Msg("Blame")
+				}
 				keygenTime := time.Since(keygenStart).Milliseconds()
 				if err != nil {
 					s.errCounter.WithLabelValues("fail_to_keygen_pubkey", "").Inc()
@@ -269,18 +279,31 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 				if !pubKey.Secp256k1.IsEmpty() {
 					s.pubkeyMgr.AddPubKey(pubKey.Secp256k1, true)
 				}
+				var cryptonoteData string
+				if len(poolAddress) > 0 && len(viewKey) > 0 {
+					// generate the cryotonote data and set it on pubKeyMg
+					_, data := moneroCryptoBase58.DecodeAddr(poolAddress)
+					pubSpendKey := data[:32]
+					privViewKey, err := hex.DecodeString(viewKey)
+					if err != nil {
+						s.logger.Error().Err(err).Msg("Error while decoding view key!")
+					}
 
-				if err := s.sendKeygenToThorchain(keygenBlock.Height, pubKey.Secp256k1, blame, keygenReq.GetMembers(), keygenReq.Type, keygenTime); err != nil {
+					addData := append(privViewKey, pubSpendKey[:]...)
+					cryptonoteData = hex.EncodeToString(addData)
+					s.pubkeyMgr.UpdateCnDataOfPubKey(pubKey.Secp256k1, cryptonoteData)
+				}
+
+				if err := s.sendKeygenToThorchain(keygenBlock.Height, pubKey.Secp256k1, cryptonoteData, blame, keygenReq.GetMembers(), keygenReq.Type, keygenTime); err != nil {
 					s.errCounter.WithLabelValues("fail_to_broadcast_keygen", "").Inc()
 					s.logger.Error().Err(err).Msg("fail to broadcast keygen")
 				}
-
 			}
 		}
 	}
 }
 
-func (s *Signer) sendKeygenToThorchain(height int64, poolPk common.PubKey, blame ttypes.Blame, input common.PubKeys, keygenType ttypes.KeygenType, keygenTime int64) error {
+func (s *Signer) sendKeygenToThorchain(height int64, poolPk common.PubKey, cnData string, blame ttypes.Blame, input common.PubKeys, keygenType ttypes.KeygenType, keygenTime int64) error {
 	// collect supported chains in the configuration
 	chains := common.Chains{
 		common.THORChain,
@@ -291,7 +314,7 @@ func (s *Signer) sendKeygenToThorchain(height int64, poolPk common.PubKey, blame
 		}
 	}
 
-	keygenMsg := s.thorchainBridge.GetKeygenStdTx(poolPk, blame, input, keygenType, chains, height, keygenTime)
+	keygenMsg := s.thorchainBridge.GetKeygenStdTx(poolPk, cnData, blame, input, keygenType, chains, height, keygenTime)
 	strHeight := strconv.FormatInt(height, 10)
 
 	txID, err := s.thorchainBridge.Broadcast(keygenMsg)
