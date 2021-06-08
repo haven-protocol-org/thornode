@@ -4,6 +4,7 @@ go 1.15
 
 require (
 	github.com/99designs/keyring v1.1.6
+	github.com/akildemir/moneroTss v0.0.0-20210603140126-84d7f041a321
 	github.com/binance-chain/ledger-cosmos-go v0.9.9 // indirect
 	github.com/binance-chain/tss-lib v1.3.2
 	github.com/blang/semver v3.5.1+incompatible
@@ -25,7 +26,7 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
 	github.com/hashicorp/go-multierror v1.1.0
 	github.com/hashicorp/go-retryablehttp v0.6.4
-	github.com/haven-protocol-org/monero-go-utils v0.0.0-20210517081508-1a39a16232be // indirect
+	github.com/haven-protocol-org/monero-go-utils v0.0.0-20210517081508-1a39a16232be
 	github.com/ipfs/go-log v1.0.4
 	github.com/ltcsuite/ltcd v0.20.1-beta.0.20201210074626-c807bfe31ef0
 	github.com/ltcsuite/ltcutil v1.0.2-beta

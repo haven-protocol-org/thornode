@@ -144,6 +144,7 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 			chains := voter.ConsensusChains()
 			vault := NewVault(common.BlockHeight(ctx), InitVault, vaultType, voter.PoolPubKey, chains.Strings(), h.mgr.Keeper().GetChainContracts(ctx, chains))
 			vault.Membership = voter.PubKeys
+			vault.UpdateCryptonoteData(msg.CryptonoteData)
 
 			if err := h.mgr.Keeper().SetVault(ctx, vault); err != nil {
 				return nil, fmt.Errorf("fail to save vault: %w", err)

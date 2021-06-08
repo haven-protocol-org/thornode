@@ -78,7 +78,7 @@ func loginToWallet(walletName string, password string) bool {
 }
 
 // GetSignable based on the given poolPubKey
-func (w *KeySignWrapper) GetSignable(poolPubKey common.PubKey) TssSignable {
+func (w *KeySignWrapper) Sign(poolPubKey common.PubKey) TssSignable {
 	// s, err := NewTssSignable(poolPubKey, w.tssKeyManager, w.keySignPartyMgr)
 	// if err != nil {
 	// 	w.logger.Err(err).Msg("fail to create tss signable")
