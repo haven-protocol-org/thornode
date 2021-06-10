@@ -21,6 +21,7 @@ ETH_START_BLOCK_HEIGHT="${ETH_START_BLOCK_HEIGHT:=0}"
 
 # Haven chain config
 XHV_HOST="${XHV_HOST:=http://127.0.0.1:27750}"
+XHV_WALLET_HOST="${XHV_WALLET_HOST:=http://127.0.0.1:12345}"
 XHV_START_BLOCK_HEIGHT="${XHV_START_BLOCK_HEIGHT:=0}"
 
 # Bitcoin Cash chain config
@@ -89,6 +90,7 @@ echo "{
       {
         \"chain_id\": \"BNB\",
         \"rpc_host\": \"$BINANCE_HOST\",
+        \"wallet_rpc_host\": \"\",
         \"block_scanner\": {
           \"rpc_host\": \"$BINANCE_HOST\",
           \"enforce_block_height\": false,
@@ -107,6 +109,7 @@ echo "{
       {
         \"chain_id\": \"BTC\",
         \"rpc_host\": \"$BTC_HOST\",
+        \"wallet_rpc_host\": \"\",
         \"username\": \"$SIGNER_NAME\",
         \"password\": \"$SIGNER_PASSWD\",
         \"http_post_mode\": 1,
@@ -129,6 +132,7 @@ echo "{
       {
         \"chain_id\": \"LTC\",
         \"rpc_host\": \"$LTC_HOST\",
+        \"wallet_rpc_host\": \"\",
         \"username\": \"$SIGNER_NAME\",
         \"password\": \"$SIGNER_PASSWD\",
         \"http_post_mode\": 1,
@@ -151,6 +155,7 @@ echo "{
       {
         \"chain_id\": \"BCH\",
         \"rpc_host\": \"$BCH_HOST\",
+        \"wallet_rpc_host\": \"\",
         \"username\": \"$SIGNER_NAME\",
         \"password\": \"$SIGNER_PASSWD\",
         \"http_post_mode\": 1,
@@ -173,6 +178,7 @@ echo "{
       {
         \"chain_id\": \"ETH\",
         \"rpc_host\": \"$ETH_HOST\",
+        \"wallet_rpc_host\": \"\",
         \"username\": \"$SIGNER_NAME\",
         \"password\": \"$SIGNER_PASSWD\",
         \"http_post_mode\": 1,
@@ -196,6 +202,7 @@ echo "{
       {
         \"chain_id\": \"XHV\",
         \"rpc_host\": \"$XHV_HOST\",
+        \"wallet_rpc_host\": \"$XHV_WALLET_HOST\",
         \"username\": \"$SIGNER_NAME\",
         \"password\": \"$SIGNER_PASSWD\",
         \"http_post_mode\": 1,

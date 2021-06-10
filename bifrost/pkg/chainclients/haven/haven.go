@@ -70,6 +70,11 @@ const BlockCacheSize = 100
 // NewClient generates a new Client
 func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server *tssp.TssServer, bridge *thorclient.ThorchainBridge, pkm pubkeymanager.PubKeyValidator, m *metrics.Metrics) (*Client, error) {
 
+	// update the ip address for daemon and wallet-rpc
+	// TODO: this is a temp solution for test
+	DaemonHost = cfg.RPCHost
+	WalletRPCHost = cfg.WalletRPCHost
+
 	tssKm, err := tss.NewKeySignMn(server, bridge, common.XHVChain)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create tss signer: %w", err)
@@ -96,13 +101,6 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 	pubSpenKey, pubViewKey, walletAddr, err := generateHavenWallet(&havenPrivSpendKey, &havenPrivViewKey, "havenBifrost", "passwd")
 	if err != nil {
 		return nil, fmt.Errorf("Fail to create a haven wallet: %+v", err)
-	}
-
-	// try to login to wallet
-	if !loginToWallet("havenBifrost", "passwd") {
-		return nil, fmt.Errorf("fail to open the haven wallet")
-	} else {
-		log.Logger.Info().Msgf("Succesful login to local Haven ygg wallet!")
 	}
 
 	// make a sign wrapper
@@ -148,6 +146,8 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 	c.blockMetaAccessor = dbAccessor
 
 	c.logger.Info().Msgf("local vault Haven address %s", c.walletAddr.String())
+	c.logger.Info().Msgf("Haven Daemon IP address %s", DaemonHost)
+	c.logger.Info().Msgf("Haven Wallet-Rpc IP address %s", WalletRPCHost)
 	return c, nil
 }
 
@@ -841,6 +841,13 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 		keyVaule["amount"] = amount
 		keyVaule["address"] = tx.ToAddress.String()
 		dsts[0] = keyVaule
+
+		// try to login to wallet
+		if !loginToWallet("havenBifrost", "passwd") {
+			return nil, fmt.Errorf("fail to open the haven wallet")
+		} else {
+			log.Logger.Info().Msgf("Succesful login to local Haven ygg wallet!")
+		}
 
 		// sign tx
 		signedTx, err = CreateTx(dsts, outputAsset, tx.Memo)

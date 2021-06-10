@@ -3,3 +3,6 @@ version: '3'
 
 services:
   bifrost:
+    environment:
+      XHV_HOST: ${XHV_HOST:-http://localhost:27750}
+      XHV_WALLET_HOST: ${XHV_WALLET_HOST:-http://localhost:12345}

@@ -156,11 +156,12 @@ type BroadcastTxResponse struct {
 	Untrusted           bool
 }
 
-const IPAddress = "192.168.1.110"
+var DaemonHost = ""
+var WalletRPCHost = ""
 
 func getChainInfo() (GetInfoResult, error) {
 	// Connect to daemon RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":27750/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + DaemonHost + ":27750/json_rpc")
 	defer clientHTTP.Close()
 
 	var reply GetInfoResult
@@ -205,7 +206,7 @@ func GetVersion() (string, error) {
 func GetBlock(height int64) (Block, jsonrpc2.Error) {
 
 	// Connect to daemon RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":27750/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + DaemonHost + ":27750/json_rpc")
 	defer clientHTTP.Close()
 
 	req := map[string]int64{"height": height}
@@ -231,7 +232,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 		return nil, fmt.Errorf("GetTxes() Marshaling request Error: %+v\n", err)
 	}
 
-	resp, err := http.Post("http://"+IPAddress+":27750/get_transactions", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+":27750/get_transactions", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("GetTxes() Http Error: %+v\n", err)
 	}
@@ -279,7 +280,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 
 func GetPoolTxs() ([]string, error) {
 
-	resp, err := http.Get("http://" + IPAddress + ":27750/get_transaction_pool")
+	resp, err := http.Get("http://" + DaemonHost + ":27750/get_transaction_pool")
 	if err != nil {
 		return nil, fmt.Errorf("GetPoolTxs() Marshaling request Error: %+v\n", err)
 	}
@@ -317,7 +318,7 @@ func GetPoolTxs() ([]string, error) {
 func CreateWallet(fileName string, address string, spendKey string, viewKey string, password string, autosave bool) error {
 
 	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + WalletRPCHost + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	req := map[string]interface{}{"filename": fileName, "address": address, "spendkey": spendKey, "viewkey": viewKey, "password": password, "autosave_current": autosave}
@@ -345,7 +346,7 @@ func CreateWallet(fileName string, address string, spendKey string, viewKey stri
 func OpenWallet(walletName string, password string) bool {
 
 	// Connect to wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + WalletRPCHost + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	// create a request
@@ -373,7 +374,7 @@ func OpenWallet(walletName string, password string) bool {
 func CreateTx(dsts []map[string]interface{}, asset string, memo string) (CreatedTx, error) {
 
 	// Connect to Wallet RPC server
-	clientHTTP := jsonrpc2.NewHTTPClient("http://" + IPAddress + ":12345/json_rpc")
+	clientHTTP := jsonrpc2.NewHTTPClient("http://" + WalletRPCHost + ":12345/json_rpc")
 	defer clientHTTP.Close()
 
 	// create a request
@@ -423,7 +424,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 		return reply
 	}
 
-	resp, err := http.Post("http://"+IPAddress+":27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+":27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		reply.Status = "Http Error"
 		reply.Reason = fmt.Sprintf("%+v", err)

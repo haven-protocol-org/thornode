@@ -13,5 +13,7 @@ services:
       BCH_HOST: ${BCH_HOST:-localhost:28443}
       LTC_HOST: ${LTC_HOST:-localhost:38443}
       ETH_HOST: ${ETH_HOST:-http://localhost:8545}
+      XHV_HOST: ${XHV_HOST:-http://localhost:27750}
+      XHV_WALLET_HOST: ${XHV_WALLET_HOST:-http://localhost:12345}
   thornode:
     network_mode: "host"
