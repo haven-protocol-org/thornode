@@ -47,6 +47,7 @@ type Signer struct {
 	constantsProvider     *ConstantsProvider
 	localPubKey           common.PubKey
 	tssKeysignMetricMgr   *metrics.TssKeysignMetricMgr
+	xhvWalletHost         string
 }
 
 // NewSigner create a new instance of signer
@@ -58,7 +59,8 @@ func NewSigner(cfg config.SignerConfiguration,
 	mnTssServer *mnTssp.TssServer,
 	chains map[common.Chain]chainclients.ChainClient,
 	m *metrics.Metrics,
-	tssKeysignMetricMgr *metrics.TssKeysignMetricMgr) (*Signer, error) {
+	tssKeysignMetricMgr *metrics.TssKeysignMetricMgr,
+	xhvWalletHost string) (*Signer, error) {
 	storage, err := NewSignerStore(cfg.SignerDbPath, thorchainBridge.GetConfig().SignerPasswd)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create thorchain scan storage: %w", err)
@@ -123,6 +125,7 @@ func NewSigner(cfg config.SignerConfiguration,
 		constantsProvider:     constantProvider,
 		localPubKey:           na.PubKeySet.Secp256k1,
 		tssKeysignMetricMgr:   tssKeysignMetricMgr,
+		xhvWalletHost:         xhvWalletHost,
 	}, nil
 }
 
@@ -289,7 +292,7 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 					s.logger.Error().Err(err).Msg("Blame")
 				}
 				// generate keys for haven/monero
-				poolAddress, viewKey, blame, err := s.tssKeygen.GenerateNewMnKey(keygenReq.GetMembers(), "192.168.1.10")
+				poolAddress, viewKey, blame, err := s.tssKeygen.GenerateNewMnKey(keygenReq.GetMembers(), s.xhvWalletHost)
 				if !blame.IsEmpty() {
 					err := fmt.Errorf("reason: %s, nodes %+v", blame.FailReason, blame.BlameNodes)
 					s.logger.Error().Err(err).Msg("Blame")

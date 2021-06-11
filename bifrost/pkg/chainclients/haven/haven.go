@@ -872,7 +872,7 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 			return nil, err
 		}
 		encodedTx := base64.StdEncoding.EncodeToString(tx)
-		txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), "192.168.1.110")
+		txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), c.cfg.WalletRPCHost)
 		if err != nil {
 			return nil, err
 		}

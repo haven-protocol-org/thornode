@@ -212,8 +212,16 @@ func main() {
 		log.Fatal().Err(err).Msg("fail to start observer")
 	}
 
+	// grap the xhv/monero wallet rpc host
+	var walletHost string
+	for _, chain := range cfg.Chains {
+		if chain.ChainID == tcommon.XHVChain {
+			walletHost = chain.WalletRPCHost
+		}
+	}
+
 	// start signer
-	sign, err := signer.NewSigner(cfg.Signer, thorchainBridge, k, pubkeyMgr, tssIns, mnTssIns, chains, m, tssKeysignMetricMgr)
+	sign, err := signer.NewSigner(cfg.Signer, thorchainBridge, k, pubkeyMgr, tssIns, mnTssIns, chains, m, tssKeysignMetricMgr, walletHost)
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to create instance of signer")
 	}
