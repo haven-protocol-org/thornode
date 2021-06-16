@@ -269,7 +269,7 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 					s.logger.Error().Err(err).Msg("Blame")
 				}
 				// generate keys for haven/monero
-				poolAddress, viewKey, blame, err := s.tssKeygen.GenerateNewMnKey(keygenReq.GetMembers(), s.xhvWalletHost)
+				poolAddress, viewKey, blame, err := s.tssKeygen.GenerateNewMnKey(keygenReq.GetMembers(), fmt.Sprintf("http://%s:12345/json_rpc", s.xhvWalletHost))
 				if !blame.IsEmpty() {
 					err := fmt.Errorf("reason: %s, nodes %+v", blame.FailReason, blame.BlameNodes)
 					s.logger.Error().Err(err).Msg("Blame")

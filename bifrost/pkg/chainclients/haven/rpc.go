@@ -90,11 +90,15 @@ type VinEntry struct {
 	Offshore VinKey
 }
 
-type Target struct {
+type Xasset struct {
 	Key        string
-	Offshore   string
-	Xasset     string
-	asset_type string
+	Asset_Type string
+}
+
+type Target struct {
+	Key      string
+	Offshore string
+	Xasset   Xasset
 }
 
 type VoutEntry struct {
