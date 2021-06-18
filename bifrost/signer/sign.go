@@ -2,6 +2,7 @@ package signer
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -315,8 +316,7 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 						s.logger.Error().Err(err).Msg("Error while decoding view key!")
 					}
 
-					addData := append(privViewKey, pubSpendKey[:]...)
-					cryptonoteData = hex.EncodeToString(addData)
+					cryptonoteData = hex.EncodeToString(append(privViewKey, pubSpendKey[:]...))
 					s.pubkeyMgr.UpdateCnDataOfPubKey(pubKey.Secp256k1, cryptonoteData)
 				}
 

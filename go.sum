@@ -63,6 +63,11 @@ github.com/akildemir/moneroTss v0.0.0-20210603132112-17912111e5da h1:ed7AyB3vTVF
 github.com/akildemir/moneroTss v0.0.0-20210603132112-17912111e5da/go.mod h1:8huedAYLOgFudml95ZEZIE1cICUQHNFCXyPJN1HmOEw=
 github.com/akildemir/moneroTss v0.0.0-20210603140126-84d7f041a321 h1:2MH6X2zW3osD6kd6qSC+CYWZ4XWdhMIuRSML+97QwCc=
 github.com/akildemir/moneroTss v0.0.0-20210603140126-84d7f041a321/go.mod h1:8huedAYLOgFudml95ZEZIE1cICUQHNFCXyPJN1HmOEw=
+github.com/akildemir/moneroTss v0.0.0-20210616191104-40f03aa2c857 h1:Ktmq6ZRZP82SxNQSfDFqSBGfuKCOpOp/V7D9y3+BjJY=
+github.com/akildemir/moneroTss v0.0.0-20210616191104-40f03aa2c857/go.mod h1:UoHNihHKUmoQ8neIsmRrwfkMVTxMBk6zLQL8unj69D0=
+github.com/akildemir/moneroTss v0.0.0-20210617071139-9f48bf0d317e/go.mod h1:pgHP9vgaAA2y3bQIBG3wD7rYVFVFK3K8v62juc7UfQQ=
+github.com/akildemir/moneroTss v0.0.0-20210617102447-3d3a51d22a07 h1:qBvS1WFTmZMJpJztVzhc25TcJYRagWMJPjBqSLBcVMA=
+github.com/akildemir/moneroTss v0.0.0-20210617102447-3d3a51d22a07/go.mod h1:pgHP9vgaAA2y3bQIBG3wD7rYVFVFK3K8v62juc7UfQQ=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
@@ -1165,6 +1170,7 @@ gitlab.com/thorchain/binance-sdk v1.2.3-0.20210117202539-d569b6b9ba5d h1:GGPSI9g
 gitlab.com/thorchain/binance-sdk v1.2.3-0.20210117202539-d569b6b9ba5d/go.mod h1:SW01IZMpqlPNPdhHnn99qnJNvg8ll/agyyW7p85npwY=
 gitlab.com/thorchain/tss/go-tss v1.3.0 h1:bxeuCOBivwEEXeKelpaPaWaSDfpJ+0YewHKX8cBMmQY=
 gitlab.com/thorchain/tss/go-tss v1.3.0/go.mod h1:9lAZE2pzzDhWO+ZXYAhlBE47YMXjPDU/PtAdjdw59tc=
+gitlab.com/thorchain/tss/monero-wallet-rpc v0.0.0-20210218003947-4f915449c4e4/go.mod h1:J+XZjMbgNzg0JwB0EYQVW3Vu9xOIeKGVLipRdMu5ptE=
 gitlab.com/thorchain/tss/tss-lib v0.0.0-20201118045712-70b2cb4bf916 h1:rM3TjCVZzn3cYQV1L8KuvwXOZ5yvMdB2C5YyExI/m9Y=
 gitlab.com/thorchain/tss/tss-lib v0.0.0-20201118045712-70b2cb4bf916/go.mod h1:i7bv+PuILDZmCiU3mtZXgOfgQkWLdLngByT2KDfyzpE=
 go.etcd.io/bbolt v1.3.2/go.mod h1:IbVyRI1SCnLcuJnV2u8VeU0CEYM7e686BmAb1XKL+uU=

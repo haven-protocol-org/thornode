@@ -61,11 +61,10 @@ func NewKeySign(server *tss.TssServer, bridge *thorclient.ThorchainBridge) (*Key
 }
 
 // NewKeySignMn create a new instance of KeySign for monero tss
-func NewKeySignMn(server *mnTss.TssServer, bridge *thorclient.ThorchainBridge, chain common.Chain) (*KeySign, error) {
+func NewKeySignMn(server *mnTss.TssServer, bridge *thorclient.ThorchainBridge) (*KeySign, error) {
 	return &KeySign{
 		mnServer: server,
 		bridge:   bridge,
-		chain:    chain,
 		logger:   log.With().Str("module", "tss_signer").Logger(),
 	}, nil
 }

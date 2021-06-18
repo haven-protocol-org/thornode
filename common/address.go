@@ -259,13 +259,21 @@ func (addr Address) IsChain(chain Chain) bool {
 			return true
 		}
 		return false
+	case XHVChain:
+		if strings.HasPrefix(addr.String(), "hvt") || strings.HasPrefix(addr.String(), "hvx") || strings.HasPrefix(addr.String(), "hvs") {
+			tag, _ := moneroCryptoBase58.DecodeAddr(addr.String()) // gives a out of range exception for other chain adresses so guarded with outer if.
+			if tag == 0x59f4 || tag == 0x05af4 {
+				return true
+			}
+		}
+		return false
 	default:
 		return true // if THORNode don't specifically check a chain yet, assume its ok.
 	}
 }
 
 func (addr Address) GetChain() Chain {
-	for _, chain := range []Chain{ETHChain, BNBChain, THORChain, BTCChain, LTCChain, BCHChain, DOGEChain} {
+	for _, chain := range []Chain{ETHChain, BNBChain, THORChain, BTCChain, LTCChain, BCHChain, DOGEChain, XHVChain} {
 		if addr.IsChain(chain) {
 			return chain
 		}
@@ -370,6 +378,13 @@ func (addr Address) GetNetwork(chain Chain) ChainNetwork {
 		_, err = dogutil.DecodeAddress(addr.String(), &dogchaincfg.RegressionNetParams)
 		if err == nil {
 			return MockNet
+		}
+	case XHVChain:
+		prefix := addr.String()[:3]
+		if prefix == "hvt" {
+			return TestNet
+		} else {
+			return MainNet
 		}
 	}
 	return MockNet

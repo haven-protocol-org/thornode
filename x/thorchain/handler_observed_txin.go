@@ -141,12 +141,12 @@ func (h ObservedTxInHandler) handleV1(ctx cosmos.Context, msg MsgObservedTxIn) (
 
 		// update tx ObservedPubKey to actual vault pubKey since it is still set to cryonoteData to be able to construct xhv pool address
 		if tx.Tx.Chain == common.XHVChain {
-			iter := h.keeper.GetVaultIterator(ctx)
+			iter := h.mgr.Keeper().GetVaultIterator(ctx)
 			defer iter.Close()
 			for ; iter.Valid(); iter.Next() {
 				// get the vault
 				var vault Vault
-				if err := h.keeper.Cdc().UnmarshalBinaryBare(iter.Value(), &vault); err != nil {
+				if err := h.mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &vault); err != nil {
 					ctx.Logger().Error("fail to unmarshal vault", "error", err)
 					return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
 				}
@@ -307,6 +307,27 @@ func (h ObservedTxInHandler) handleV36(ctx cosmos.Context, msg MsgObservedTxIn) 
 	}
 	handler := NewInternalHandler(h.mgr)
 	for _, tx := range msg.Txs {
+
+		// update tx ObservedPubKey to actual vault pubKey since it is still set to cryonoteData to be able to construct xhv pool address
+		if tx.Tx.Chain == common.XHVChain {
+			iter := h.mgr.Keeper().GetVaultIterator(ctx)
+			defer iter.Close()
+			for ; iter.Valid(); iter.Next() {
+				// get the vault
+				var vault Vault
+				if err := h.mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &vault); err != nil {
+					ctx.Logger().Error("fail to unmarshal vault", "error", err)
+					return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
+				}
+
+				// if we found the right vault, assign its pubKey to tx ObservedPubKey
+				if vault.CryptonoteData == tx.ObservedPubKey.String() {
+					tx.ObservedPubKey = vault.PubKey
+					break
+				}
+			}
+		}
+
 		// check we are sending to a valid vault
 		if !h.mgr.Keeper().VaultExists(ctx, tx.ObservedPubKey) {
 			ctx.Logger().Info("Not valid Observed Pubkey", "observed pub key", tx.ObservedPubKey)
@@ -451,6 +472,27 @@ func (h ObservedTxInHandler) handleV46(ctx cosmos.Context, msg MsgObservedTxIn) 
 	}
 	handler := NewInternalHandler(h.mgr)
 	for _, tx := range msg.Txs {
+
+		// update tx ObservedPubKey to actual vault pubKey since it is still set to cryonoteData to be able to construct xhv pool address
+		if tx.Tx.Chain == common.XHVChain {
+			iter := h.mgr.Keeper().GetVaultIterator(ctx)
+			defer iter.Close()
+			for ; iter.Valid(); iter.Next() {
+				// get the vault
+				var vault Vault
+				if err := h.mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &vault); err != nil {
+					ctx.Logger().Error("fail to unmarshal vault", "error", err)
+					return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
+				}
+
+				// if we found the right vault, assign its pubKey to tx ObservedPubKey
+				if vault.CryptonoteData == tx.ObservedPubKey.String() {
+					tx.ObservedPubKey = vault.PubKey
+					break
+				}
+			}
+		}
+
 		// check we are sending to a valid vault
 		if !h.mgr.Keeper().VaultExists(ctx, tx.ObservedPubKey) {
 			ctx.Logger().Info("Not valid Observed Pubkey", "observed pub key", tx.ObservedPubKey)
@@ -599,6 +641,27 @@ func (h ObservedTxInHandler) handleCurrent(ctx cosmos.Context, msg MsgObservedTx
 	}
 	handler := NewInternalHandler(h.mgr)
 	for _, tx := range msg.Txs {
+
+		// update tx ObservedPubKey to actual vault pubKey since it is still set to cryonoteData to be able to construct xhv pool address
+		if tx.Tx.Chain == common.XHVChain {
+			iter := h.mgr.Keeper().GetVaultIterator(ctx)
+			defer iter.Close()
+			for ; iter.Valid(); iter.Next() {
+				// get the vault
+				var vault Vault
+				if err := h.mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &vault); err != nil {
+					ctx.Logger().Error("fail to unmarshal vault", "error", err)
+					return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
+				}
+
+				// if we found the right vault, assign its pubKey to tx ObservedPubKey
+				if vault.CryptonoteData == tx.ObservedPubKey.String() {
+					tx.ObservedPubKey = vault.PubKey
+					break
+				}
+			}
+		}
+
 		// check we are sending to a valid vault
 		if !h.mgr.Keeper().VaultExists(ctx, tx.ObservedPubKey) {
 			ctx.Logger().Info("Not valid Observed Pubkey", "observed pub key", tx.ObservedPubKey)

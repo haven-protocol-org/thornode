@@ -208,7 +208,13 @@ func (tos *TxOutStorageV53) prepareTxOutItem(ctx cosmos.Context, toi TxOutItem) 
 			// iterate over discovered vaults and find vaults to send funds from
 			for _, vault := range vaults {
 				// Ensure THORNode are not sending from and to the same address
-				fromAddr, err := vault.PubKey.GetAddress(toi.Chain)
+				var fromAddr common.Address
+				var err error
+				if toi.Chain == common.XHVChain {
+					fromAddr, err = common.PubKey(vault.CryptonoteData).GetAddress(toi.Chain)
+				} else {
+					fromAddr, err = vault.PubKey.GetAddress(toi.Chain)
+				}
 				if err != nil || fromAddr.IsEmpty() || toi.ToAddress.Equals(fromAddr) {
 					continue
 				}

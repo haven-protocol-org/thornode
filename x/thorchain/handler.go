@@ -62,6 +62,7 @@ func getHandlerMapping(mgr Manager) map[string]MsgHandler {
 	m[MsgSetNodeKeys{}.Type()] = NewSetNodeKeysHandler(mgr)
 	m[MsgSetVersion{}.Type()] = NewVersionHandler(mgr)
 	m[MsgSetIPAddress{}.Type()] = NewIPAddressHandler(mgr)
+	m[MsgSetCryptonoteData{}.Type()] = NewCryptonoteDataHandler(mgr)
 
 	// native handlers (non-consensus)
 	m[MsgSend{}.Type()] = NewSendHandler(mgr)

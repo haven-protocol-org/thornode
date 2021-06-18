@@ -208,7 +208,13 @@ func getVaultChainAddress(ctx cosmos.Context, vault Vault) []QueryChainAddress {
 	var result []QueryChainAddress
 	allChains := append(vault.GetChains(), common.THORChain)
 	for _, c := range allChains.Distinct() {
-		addr, err := vault.PubKey.GetAddress(c)
+		var addr common.Address
+		var err error
+		if c == common.XHVChain {
+			addr, err = common.PubKey(vault.CryptonoteData).GetAddress(c)
+		} else {
+			addr, err = vault.PubKey.GetAddress(c)
+		}
 		if err != nil {
 			ctx.Logger().Error("fail to get address for %s:%w", c.String(), err)
 			continue

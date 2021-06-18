@@ -75,7 +75,7 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 	DaemonHost = cfg.RPCHost
 	WalletRPCHost = cfg.WalletRPCHost
 
-	tssKm, err := tss.NewKeySignMn(server, bridge, common.XHVChain)
+	tssKm, err := tss.NewKeySignMn(server, bridge)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create tss signer: %w", err)
 	}
@@ -244,6 +244,10 @@ func (c *Client) getCoinbaseValue(blockHeight int64) (int64, error) {
 
 	amount := int64(31058480894586)
 	return amount, nil
+}
+
+func (c *Client) IsBlockScannerHealthy() bool {
+	return c.blockScanner.IsHealthy()
 }
 
 // getBlockRequiredConfirmation find out how many confirmation the given txIn need to have before it can be send to THORChain

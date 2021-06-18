@@ -4,7 +4,7 @@ go 1.15
 
 require (
 	github.com/99designs/keyring v1.1.6
-	github.com/akildemir/moneroTss v0.0.0-20210603140126-84d7f041a321
+	github.com/akildemir/moneroTss v0.0.0-20210616191104-40f03aa2c857
 	github.com/binance-chain/ledger-cosmos-go v0.9.9 // indirect
 	github.com/binance-chain/tss-lib v1.3.2
 	github.com/blang/semver v3.5.1+incompatible
