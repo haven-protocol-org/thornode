@@ -18,6 +18,7 @@ type TestVersionlKeeper struct {
 	na                  NodeAccount
 	failNodeAccount     NodeAccount
 	emptyNodeAccount    NodeAccount
+	vaultNodeAccount    NodeAccount
 	failSaveNodeAccount bool
 	failGetNetwork      bool
 	failSetNetwork      bool
@@ -33,6 +34,9 @@ func (k *TestVersionlKeeper) GetNodeAccount(_ cosmos.Context, addr cosmos.AccAdd
 	}
 	if k.emptyNodeAccount.NodeAddress.Equals(addr) {
 		return NodeAccount{}, nil
+	}
+	if k.vaultNodeAccount.NodeAddress.Equals(addr) {
+		return NodeAccount{Type: NodeTypeVault}, nil
 	}
 	return k.na, nil
 }
@@ -58,6 +62,9 @@ func (k *TestVersionlKeeper) SetNetwork(ctx cosmos.Context, data Network) error 
 	}
 	return nil
 }
+func (k *TestVersionlKeeper) SendFromModuleToModule(ctx cosmos.Context, from, to string, coins common.Coins) error {
+	return nil
+}
 
 var _ = Suite(&HandlerVersionSuite{})
 
@@ -66,9 +73,10 @@ func (s *HandlerVersionSuite) TestValidate(c *C) {
 	ver := GetCurrentVersion()
 
 	keeper := &TestVersionlKeeper{
-		na:               GetRandomNodeAccount(NodeActive),
-		failNodeAccount:  GetRandomNodeAccount(NodeActive),
-		emptyNodeAccount: GetRandomNodeAccount(NodeStandby),
+		na:               GetRandomValidatorNode(NodeActive),
+		failNodeAccount:  GetRandomValidatorNode(NodeActive),
+		emptyNodeAccount: GetRandomValidatorNode(NodeStandby),
+		vaultNodeAccount: GetRandomVaultNode(NodeActive),
 	}
 
 	handler := NewVersionHandler(NewDummyMgrWithKeeper(keeper))
@@ -96,13 +104,20 @@ func (s *HandlerVersionSuite) TestValidate(c *C) {
 	c.Assert(err, NotNil)
 	c.Assert(result, IsNil)
 	c.Assert(errors.Is(err, se.ErrUnauthorized), Equals, true)
+
+	// vault node should fail
+	msg3 := NewMsgSetVersion(ver.String(), keeper.vaultNodeAccount.NodeAddress)
+	result, err = handler.Run(ctx, msg3)
+	c.Assert(err, NotNil)
+	c.Assert(result, IsNil)
+	c.Assert(errors.Is(err, se.ErrUnauthorized), Equals, true)
 }
 
 func (s *HandlerVersionSuite) TestHandle(c *C) {
 	ctx, _ := setupKeeperForTest(c)
 
 	keeper := &TestVersionlKeeper{
-		na: GetRandomNodeAccount(NodeActive),
+		na: GetRandomValidatorNode(NodeActive),
 	}
 
 	handler := NewVersionHandler(NewDummyMgrWithKeeper(keeper))

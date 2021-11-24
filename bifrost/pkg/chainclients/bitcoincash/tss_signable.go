@@ -49,10 +49,6 @@ func (ts *TssSignable) SignECDSA(payload []byte) (*bchec.Signature, error) {
 	}
 	return &sig, nil
 }
-// SignSchnorr signs the given payload using Schnorr
-func (ts *TssSignable) SignSchnorr(payload []byte) (*bchec.Signature, error) {
-	return nil, fmt.Errorf("schnorr signature not yet implemented in TSS")
-}
 
 // SignSchnorr signs the given payload using Schnorr
 func (ts *TssSignable) SignSchnorr(payload []byte) (*bchec.Signature, error) {

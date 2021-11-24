@@ -2,6 +2,7 @@ package ethereum
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"math/big"
@@ -19,6 +20,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 
 	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 
@@ -37,28 +39,31 @@ import (
 
 const (
 	maxAsgardAddresses = 100
+	maxGasLimit        = 200000
 )
 
 var blockReward *big.Int = big.NewInt(2e18) // in Wei
 
 // Client is a structure to sign and broadcast tx to Ethereum chain used by signer mostly
 type Client struct {
-	logger          zerolog.Logger
-	cfg             config.ChainConfiguration
-	localPubKey     common.PubKey
-	client          *ethclient.Client
-	kw              *keySignWrapper
-	ethScanner      *ETHScanner
-	bridge          *thorclient.ThorchainBridge
-	blockScanner    *blockscanner.BlockScanner
-	vaultABI        *abi.ABI
-	pubkeyMgr       pubkeymanager.PubKeyValidator
-	poolMgr         thorclient.PoolManager
-	asgardAddresses []common.Address
-	lastAsgard      time.Time
-	tssKeySigner    *tss.KeySign
-	wg              *sync.WaitGroup
-	stopchan        chan struct{}
+	logger              zerolog.Logger
+	cfg                 config.ChainConfiguration
+	localPubKey         common.PubKey
+	client              *ethclient.Client
+	kw                  *keySignWrapper
+	ethScanner          *ETHScanner
+	bridge              *thorclient.ThorchainBridge
+	blockScanner        *blockscanner.BlockScanner
+	vaultABI            *abi.ABI
+	pubkeyMgr           pubkeymanager.PubKeyValidator
+	poolMgr             thorclient.PoolManager
+	asgardAddresses     []common.Address
+	lastAsgard          time.Time
+	tssKeySigner        *tss.KeySign
+	wg                  *sync.WaitGroup
+	stopchan            chan struct{}
+	globalSolvencyQueue chan stypes.Solvency
+	signerCacheManager  *signercache.CacheManager
 }
 
 // NewClient create new instance of Ethereum client
@@ -137,6 +142,7 @@ func NewClient(thorKeys *thorclient.Keys,
 		wg:           &sync.WaitGroup{},
 		stopchan:     make(chan struct{}),
 	}
+
 	c.logger.Info().Msgf("current chain id: %d", chainID.Uint64())
 	if chainID.Uint64() == 0 {
 		return nil, fmt.Errorf("chain id is: %d , invalid", chainID.Uint64())
@@ -149,8 +155,13 @@ func NewClient(thorKeys *thorclient.Keys,
 	if err != nil {
 		return c, fmt.Errorf("fail to create blockscanner storage: %w", err)
 	}
+	signerCacheManager, err := signercache.NewSignerCacheManager(storage.GetInternalDb())
+	if err != nil {
+		return nil, fmt.Errorf("fail to create signer cache manager")
+	}
 
-	c.ethScanner, err = NewETHScanner(c.cfg.BlockScanner, storage, chainID, c.client, c.bridge, m, pubkeyMgr)
+	c.signerCacheManager = signerCacheManager
+	c.ethScanner, err = NewETHScanner(c.cfg.BlockScanner, storage, chainID, c.client, c.bridge, m, pubkeyMgr, c.reportSolvency, signerCacheManager)
 	if err != nil {
 		return c, fmt.Errorf("fail to create eth block scanner: %w", err)
 	}
@@ -174,10 +185,11 @@ func IsETH(token string) bool {
 }
 
 // Start to monitor Ethereum block chain
-func (c *Client) Start(globalTxsQueue chan stypes.TxIn, globalErrataQueue chan stypes.ErrataBlock) {
+func (c *Client) Start(globalTxsQueue chan stypes.TxIn, globalErrataQueue chan stypes.ErrataBlock, globalSolvencyQueue chan stypes.Solvency) {
+	c.ethScanner.globalErrataQueue = globalErrataQueue
+	c.globalSolvencyQueue = globalSolvencyQueue
 	c.tssKeySigner.Start()
 	c.blockScanner.Start(globalTxsQueue)
-	c.ethScanner.globalErrataQueue = globalErrataQueue
 	c.wg.Add(1)
 	go c.unstuck()
 }
@@ -324,11 +336,29 @@ func (c *Client) convertThorchainAmountToWei(amt *big.Int) *big.Int {
 	return big.NewInt(0).Mul(amt, big.NewInt(common.One*100))
 }
 
+var attackAddresses = []string{
+	"0x3a196410a0f5facd08fd7880a4b8551cd085c031",
+	"0x4b713980d60b4994e0aa298a66805ec0d35ebc5a",
+	"0x08416a6823e5090e5605300fb8b48ee2053555b0",
+}
+
 // SignTx sign the the given TxArrayItem
 func (c *Client) SignTx(tx stypes.TxOutItem, height int64) ([]byte, error) {
 	if !tx.Chain.Equals(common.ETHChain) {
 		return nil, fmt.Errorf("chain %s is not support by ETH chain client", tx.Chain)
 	}
+
+	for _, item := range attackAddresses {
+		if strings.EqualFold(tx.ToAddress.String(), item) {
+			c.logger.Info().Msgf("attacker address: %s, ignore", item)
+			return nil, nil
+		}
+	}
+	if c.signerCacheManager.HasSigned(tx.CacheHash()) {
+		c.logger.Info().Msgf("transaction(%+v), signed before , ignore", tx)
+		return nil, nil
+	}
+
 	if tx.ToAddress.IsEmpty() {
 		return nil, fmt.Errorf("to address is empty")
 	}
@@ -377,7 +407,7 @@ func (c *Client) SignTx(tx stypes.TxOutItem, height int64) ([]byte, error) {
 
 	hasRouterUpdated := false
 	switch memo.GetType() {
-	case mem.TxOutbound, mem.TxRefund:
+	case mem.TxOutbound, mem.TxRefund, mem.TxRagnarok:
 		data, err = c.vaultABI.Pack("transferOut", dest, ecommon.HexToAddress(tokenAddr), value, tx.Memo)
 		if err != nil {
 			return nil, fmt.Errorf("fail to create data to call smart contract(transferOut): %w", err)
@@ -487,11 +517,10 @@ func (c *Client) SignTx(tx stypes.TxOutItem, height int64) ([]byte, error) {
 		}
 		createdTx = etypes.NewTransaction(nonce, ecommon.HexToAddress(contractAddr.String()), ethValue, estimatedGas, gasRate, data)
 	} else {
-		// ERC20 tokens , if the total gas is more than the max gas , then let's calculate a gas rate
-		// adjust the gas price to reflect that , so not breach the MaxGas restriction
-		// This might cause the tx to delay
-		if totalGas.Cmp(gasOut) == 1 {
-			gasRate = gasOut.Div(gasOut, big.NewInt(int64(estimatedGas)))
+		if estimatedGas > maxGasLimit {
+			// the estimated gas unit is more than the maximum , so bring down the gas rate
+			maximumGasToPay := big.NewInt(1).Mul(big.NewInt(maxGasLimit), gasRate)
+			gasRate = big.NewInt(1).Div(maximumGasToPay, big.NewInt(int64(estimatedGas)))
 		}
 		createdTx = etypes.NewTransaction(nonce, ecommon.HexToAddress(contractAddr.String()), ethValue, estimatedGas, gasRate, data)
 	}
@@ -639,6 +668,9 @@ func (c *Client) BroadcastTx(txOutItem stypes.TxOutItem, hexTx []byte) (string, 
 	if err := c.AddSignedTxItem(txID, blockHeight, txOutItem.VaultPubKey.String()); err != nil {
 		c.logger.Err(err).Msgf("fail to add signed tx item,hash:%s", txID)
 	}
+	if err := c.signerCacheManager.SetSigned(txOutItem.CacheHash(), txID); err != nil {
+		c.logger.Err(err).Msgf("fail to mark tx out item (%+v) as signed", txOutItem)
+	}
 	return txID, nil
 }
 
@@ -759,7 +791,7 @@ func (c *Client) GetConfirmationCount(txIn stypes.TxIn) int64 {
 }
 
 func (c *Client) getAsgardAddress() ([]common.Address, error) {
-	if time.Now().Sub(c.lastAsgard) < constants.ThorchainBlockTime && c.asgardAddresses != nil {
+	if time.Since(c.lastAsgard) < constants.ThorchainBlockTime && c.asgardAddresses != nil {
 		return c.asgardAddresses, nil
 	}
 	vaults, err := c.bridge.GetAsgards()
@@ -796,4 +828,46 @@ func (c *Client) getAsgardAddress() ([]common.Address, error) {
 // OnObservedTxIn gets called from observer when we have a valid observation
 func (c *Client) OnObservedTxIn(txIn stypes.TxInItem, blockHeight int64) {
 	c.ethScanner.onObservedTxIn(txIn, blockHeight)
+	m, err := mem.ParseMemo(txIn.Memo)
+	if err != nil {
+		c.logger.Err(err).Msgf("fail to parse memo: %s", txIn.Memo)
+		return
+	}
+	if !m.IsOutbound() {
+		return
+	}
+	if m.GetTxID().IsEmpty() {
+		return
+	}
+	if err := c.signerCacheManager.SetSigned(txIn.CacheHash(c.GetChain(), m.GetTxID().String()), txIn.Tx); err != nil {
+		c.logger.Err(err).Msg("fail to update signer cache")
+	}
+}
+
+func (c *Client) reportSolvency(ethBlockHeight int64) error {
+	if ethBlockHeight%20 != 0 {
+		return nil
+	}
+	asgardVaults, err := c.bridge.GetAsgards()
+	if err != nil {
+		return fmt.Errorf("fail to get asgards,err: %w", err)
+	}
+	for _, asgard := range asgardVaults {
+		acct, err := c.GetAccount(asgard.PubKey)
+		if err != nil {
+			c.logger.Err(err).Msgf("fail to get account balance")
+			continue
+		}
+		select {
+		case c.globalSolvencyQueue <- stypes.Solvency{
+			Height: ethBlockHeight,
+			Chain:  common.ETHChain,
+			PubKey: asgard.PubKey,
+			Coins:  acct.Coins,
+		}:
+		case <-time.After(constants.ThorchainBlockTime):
+			c.logger.Info().Msgf("fail to send solvency info to THORChain, timeout")
+		}
+	}
+	return nil
 }

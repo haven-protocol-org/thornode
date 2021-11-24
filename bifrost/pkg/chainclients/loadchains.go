@@ -9,6 +9,7 @@ import (
 	"gitlab.com/thorchain/thornode/bifrost/metrics"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/binance"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/bitcoin"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/bitcoincash"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/ethereum"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/haven"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/litecoin"
@@ -23,8 +24,6 @@ func LoadChains(thorKeys *thorclient.Keys,
 	server *tss.TssServer,
 	mnServer *mnTss.TssServer,
 	thorchainBridge *thorclient.ThorchainBridge,
-	m *metrics.Metrics,
-	pubKeyValidator pubkeymanager.PubKeyValidator,
 	poolMgr thorclient.PoolManager) map[common.Chain]ChainClient {
 	logger := log.Logger.With().Str("module", "bifrost").Logger()
 	chains := make(map[common.Chain]ChainClient, 0)
@@ -54,15 +53,7 @@ func LoadChains(thorKeys *thorclient.Keys,
 			pubKeyValidator.RegisterCallback(btc.RegisterPublicKey)
 			chains[common.BTCChain] = btc
 		case common.BCHChain:
-			// bch, err := bitcoincash.NewClient(thorKeys, chain, server, thorchainBridge, m)
-			// if err != nil {
-			// 	logger.Fatal().Err(err).Str("chain_id", chain.ChainID.String()).Msg("fail to load chain")
-			// 	continue
-			// }
-			// pubKeyValidator.RegisterCallback(bch.RegisterPublicKey)
-			// chains[common.BCHChain] = bch
-		case common.LTCChain:
-			ltc, err := litecoin.NewClient(thorKeys, chain, server, thorchainBridge, m)
+			bch, err := bitcoincash.NewClient(thorKeys, chain, server, thorchainBridge, m)
 			if err != nil {
 				logger.Fatal().Err(err).Str("chain_id", chain.ChainID.String()).Msg("fail to load chain")
 				continue

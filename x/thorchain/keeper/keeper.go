@@ -58,6 +58,8 @@ type Keeper interface {
 	KeeperNetworkFee
 	KeeperObservedNetworkFeeVoter
 	KeeperChainContract
+	KeeperSolvencyVoter
+	KeeperTHORName
 }
 
 type KeeperPool interface {
@@ -88,10 +90,10 @@ type KeeperLiquidityProvider interface {
 }
 
 type KeeperNodeAccount interface {
-	TotalActiveNodeAccount(ctx cosmos.Context) (int, error)
-	ListNodeAccountsWithBond(ctx cosmos.Context) (NodeAccounts, error)
-	ListNodeAccountsByStatus(ctx cosmos.Context, status NodeStatus) (NodeAccounts, error)
-	ListActiveNodeAccounts(ctx cosmos.Context) (NodeAccounts, error)
+	TotalActiveValidators(ctx cosmos.Context) (int, error)
+	ListValidatorsWithBond(ctx cosmos.Context) (NodeAccounts, error)
+	ListValidatorsByStatus(ctx cosmos.Context, status NodeStatus) (NodeAccounts, error)
+	ListActiveValidators(ctx cosmos.Context) (NodeAccounts, error)
 	GetLowestActiveVersion(ctx cosmos.Context) semver.Version
 	GetMinJoinVersion(ctx cosmos.Context) semver.Version
 	GetMinJoinVersionV1(ctx cosmos.Context) semver.Version
@@ -107,6 +109,7 @@ type KeeperNodeAccount interface {
 	ResetNodeAccountSlashPoints(_ cosmos.Context, _ cosmos.AccAddress)
 	GetNodeAccountJail(ctx cosmos.Context, addr cosmos.AccAddress) (Jail, error)
 	SetNodeAccountJail(ctx cosmos.Context, addr cosmos.AccAddress, height int64, reason string) error
+	ReleaseNodeAccountFromJail(ctx cosmos.Context, addr cosmos.AccAddress) error
 }
 
 type KeeperObserver interface {
@@ -130,6 +133,7 @@ type KeeperTxOut interface {
 	ClearTxOut(ctx cosmos.Context, height int64) error
 	GetTxOutIterator(ctx cosmos.Context) cosmos.Iterator
 	GetTxOut(ctx cosmos.Context, height int64) (*TxOut, error)
+	GetTxOutValue(ctx cosmos.Context, height int64) (cosmos.Uint, error)
 }
 
 type KeeperLiquidityFees interface {
@@ -221,6 +225,8 @@ type KeeperMimir interface {
 	SetMimir(_ cosmos.Context, key string, value int64)
 	GetMimirIterator(ctx cosmos.Context) cosmos.Iterator
 	DeleteMimir(_ cosmos.Context, key string) error
+	GetNodePauseChain(ctx cosmos.Context, acc cosmos.AccAddress) int64
+	SetNodePauseChain(ctx cosmos.Context, acc cosmos.AccAddress)
 }
 
 type KeeperNetworkFee interface {
@@ -241,6 +247,19 @@ type KeeperChainContract interface {
 	GetChainContract(ctx cosmos.Context, chain common.Chain) (ChainContract, error)
 	GetChainContracts(ctx cosmos.Context, chains common.Chains) []ChainContract
 	GetChainContractIterator(ctx cosmos.Context) cosmos.Iterator
+}
+type KeeperSolvencyVoter interface {
+	SetSolvencyVoter(_ cosmos.Context, _ SolvencyVoter)
+	GetSolvencyVoter(_ cosmos.Context, _ common.TxID, _ common.Chain) (SolvencyVoter, error)
+}
+
+// NewKeeper creates new instances of the thorchain Keeper
+type KeeperTHORName interface {
+	THORNameExists(ctx cosmos.Context, _ string) bool
+	GetTHORName(ctx cosmos.Context, _ string) (THORName, error)
+	SetTHORName(ctx cosmos.Context, name THORName)
+	GetTHORNameIterator(ctx cosmos.Context) cosmos.Iterator
+	DeleteTHORName(ctx cosmos.Context, _ string) error
 }
 
 // NewKVStore creates new instances of the thorchain Keeper

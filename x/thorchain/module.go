@@ -2,7 +2,6 @@ package thorchain
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -94,20 +93,22 @@ func (AppModuleBasic) GetTxCmd() *cobra.Command {
 // AppModule implements an application module for the thorchain module.
 type AppModule struct {
 	AppModuleBasic
-	mgr          *Mgrs
-	keybaseStore cosmos.KeybaseStore
+	mgr              *Mgrs
+	keybaseStore     cosmos.KeybaseStore
+	telemetryEnabled bool
 }
 
 // NewAppModule creates a new AppModule Object
-func NewAppModule(k keeper.Keeper, cdc codec.BinaryMarshaler, coinKeeper bankkeeper.Keeper, accountKeeper authkeeper.AccountKeeper, storeKey cosmos.StoreKey) AppModule {
+func NewAppModule(k keeper.Keeper, cdc codec.BinaryMarshaler, coinKeeper bankkeeper.Keeper, accountKeeper authkeeper.AccountKeeper, storeKey cosmos.StoreKey, telemetryEnabled bool) AppModule {
 	kb, err := cosmos.GetKeybase(os.Getenv("CHAIN_HOME_FOLDER"))
 	if err != nil {
 		panic(err)
 	}
 	return AppModule{
-		AppModuleBasic: AppModuleBasic{},
-		mgr:            NewManagers(k, cdc, coinKeeper, accountKeeper, storeKey),
-		keybaseStore:   kb,
+		AppModuleBasic:   AppModuleBasic{},
+		mgr:              NewManagers(k, cdc, coinKeeper, accountKeeper, storeKey),
+		keybaseStore:     kb,
+		telemetryEnabled: telemetryEnabled,
 	}
 }
 
@@ -159,7 +160,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
 	version := am.mgr.Keeper().GetLowestActiveVersion(ctx)
 
 	// Does a kvstore migration
-	smgr := NewStoreMgr(am.mgr.Keeper())
+	smgr := newStoreMgr(am.mgr)
 	if err := smgr.Iterator(ctx); err != nil {
 		os.Exit(10) // halt the chain if unsuccessful
 	}
@@ -172,7 +173,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {
 
 	constantValues := constants.GetConstantValues(version)
 	if constantValues == nil {
-		ctx.Logger().Error(fmt.Sprintf("constants for version(%s) is not available", version))
+		ctx.Logger().Error("constants is not available", "version", version)
 		return
 	}
 
@@ -189,7 +190,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	version := am.mgr.Keeper().GetLowestActiveVersion(ctx)
 	constantValues := constants.GetConstantValues(version)
 	if constantValues == nil {
-		ctx.Logger().Error(fmt.Sprintf("constants for version(%s) is not available", version))
+		ctx.Logger().Error("constants is not available", "version", version)
 		return nil
 	}
 	if err := am.mgr.SwapQ().EndBlock(ctx, am.mgr, version, constantValues); err != nil {
@@ -247,7 +248,18 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		ctx.Logger().Error("unable to fund yggdrasil", "error", err)
 	}
 
+	if err := am.mgr.TxOutStore().EndBlock(ctx, am.mgr); err != nil {
+		ctx.Logger().Error("fail to process txout endblock", "error", err)
+	}
+
 	am.mgr.GasMgr().EndBlock(ctx, am.mgr.Keeper(), am.mgr.EventMgr())
+
+	// telemetry
+	if am.telemetryEnabled {
+		if err := emitEndBlockTelemetry(ctx, am.mgr); err != nil {
+			ctx.Logger().Error("unable to emit end block telemetry", "error", err)
+		}
+	}
 
 	return validators
 }

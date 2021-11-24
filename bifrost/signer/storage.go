@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultSignerLevelDBFolder = "signer_data"
-	txOutPrefix                = "txout-v1-"
+	txOutPrefix                = "txout-v3-"
 )
 
 type TxStatus int
@@ -175,16 +175,18 @@ func (s *SignerStore) Get(key string) (item TxOutStoreItem, err error) {
 	return
 }
 
+// Has check whether the given key exist in key value store
 func (s *SignerStore) Has(key string) (ok bool) {
 	ok, _ = s.db.Has([]byte(key), nil)
 	return
 }
 
+// Remove remove the given item from key values store
 func (s *SignerStore) Remove(item TxOutStoreItem) error {
 	return s.db.Delete([]byte(item.Key()), nil)
 }
 
-// GetTxOutsForRetry send back tx out to retry depending on arg failed only
+// List send back tx out to retry depending on arg failed only
 func (s *SignerStore) List() []TxOutStoreItem {
 	iterator := s.db.NewIterator(util.BytesPrefix([]byte(txOutPrefix)), nil)
 	defer iterator.Release()

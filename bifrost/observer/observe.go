@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/blang/semver"
 	"github.com/cenkalti/backoff"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
 	"gitlab.com/thorchain/thornode/bifrost/metrics"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
@@ -20,10 +21,13 @@ import (
 	"gitlab.com/thorchain/thornode/bifrost/thorclient/types"
 	"gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/constants"
+	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
 	stypes "gitlab.com/thorchain/thornode/x/thorchain/types"
 )
 
 const maxTxArrayLen = 100
+
+type SignerCacheUpdater func(hash string) error
 
 // Observer observer service
 type Observer struct {
@@ -35,6 +39,7 @@ type Observer struct {
 	lock                *sync.Mutex
 	globalTxsQueue      chan types.TxIn
 	globalErrataQueue   chan types.ErrataBlock
+	globalSolvencyQueue chan types.Solvency
 	m                   *metrics.Metrics
 	errCounter          *prometheus.CounterVec
 	thorchainBridge     *thorclient.ThorchainBridge
@@ -65,6 +70,7 @@ func NewObserver(pubkeyMgr *pubkeymanager.PubKeyManager,
 		lock:                &sync.Mutex{},
 		globalTxsQueue:      make(chan types.TxIn),
 		globalErrataQueue:   make(chan types.ErrataBlock),
+		globalSolvencyQueue: make(chan types.Solvency),
 		errCounter:          m.GetCounterVec(metrics.ObserverError),
 		thorchainBridge:     thorchainBridge,
 		storage:             storage,
@@ -84,10 +90,11 @@ func (o *Observer) getChain(chainID common.Chain) (chainclients.ChainClient, err
 func (o *Observer) Start() error {
 	o.restoreDeck()
 	for _, chain := range o.chains {
-		chain.Start(o.globalTxsQueue, o.globalErrataQueue)
+		chain.Start(o.globalTxsQueue, o.globalErrataQueue, o.globalSolvencyQueue)
 	}
 	go o.processTxIns()
 	go o.processErrataTx()
+	go o.processSolvencyQueue()
 	go o.deck()
 	return nil
 }
@@ -239,14 +246,6 @@ func (o *Observer) processTxIns() {
 	}
 }
 
-func (o *Observer) isOutboundMsg(chain common.Chain, fromAddr string) bool {
-	matchOutbound, _ := o.pubkeyMgr.IsValidPoolAddress(fromAddr, chain)
-	if matchOutbound {
-		return true
-	}
-	return false
-}
-
 // chunkify  breaks the observations into 100 transactions per observation
 func (o *Observer) chunkify(txIn types.TxIn) (result []types.TxIn) {
 	// sort it by block height
@@ -306,6 +305,34 @@ func (o *Observer) filterObservations(chain common.Chain, items []types.TxInItem
 // given that Bifrost have to filter out those txes
 // the logic has to be here as THORChain is chain agnostic , customer can swap from BTC/ETH to BNB
 func (o *Observer) filterBinanceMemoFlag(chain common.Chain, items []types.TxInItem) (txs []types.TxInItem) {
+	// finds the destination address, and supports THORNames
+	fetchAddr := func(memo string, bridge *thorclient.ThorchainBridge) common.Address {
+		m, err := mem.ParseMemo(memo)
+		if err != nil {
+			o.logger.Error().Err(err).Msgf("Unable to parse memo: %s", memo)
+			return common.NoAddress
+		}
+		if !m.GetDestination().IsEmpty() {
+			return m.GetDestination()
+		}
+
+		// could not find an address, check THORNames
+		var raw string
+		parts := strings.Split(memo, ":")
+		switch m.GetType() {
+		case mem.TxAdd:
+			if len(parts) > 2 {
+				raw = parts[2]
+			}
+		case mem.TxSwap:
+			if len(parts) > 3 {
+				raw = parts[3]
+			}
+		}
+		name, _ := bridge.GetTHORName(raw)
+		return name.GetAlias(common.BNBChain)
+	}
+
 	bnbClient, ok := o.chains[common.BNBChain]
 	if !ok {
 		txs = items
@@ -313,7 +340,7 @@ func (o *Observer) filterBinanceMemoFlag(chain common.Chain, items []types.TxInI
 	}
 	for _, txInItem := range items {
 		var addressesToCheck []string
-		addr := txInItem.GetAddressToCheck()
+		addr := fetchAddr(txInItem.Memo, o.thorchainBridge)
 		if !addr.IsEmpty() && addr.IsChain(common.BNBChain) {
 			addressesToCheck = append(addressesToCheck, addr.String())
 		}
@@ -395,6 +422,44 @@ func (o *Observer) sendErrataTxToThorchain(height int64, txID common.TxID, chain
 		return fmt.Errorf("fail to send the tx to thorchain: %w", err)
 	}
 	o.logger.Info().Int64("block", height).Str("thorchain hash", txID.String()).Msg("sign and send to thorchain successfully")
+	return nil
+}
+
+func (o *Observer) sendSolvencyToThorchain(height int64, chain common.Chain, pubKey common.PubKey, coins common.Coins) error {
+	// TODO: the following version check can be removed once the network has been upgrade to 0.63.0 and beyond
+	// before the network get to 0.63.0 , it won't understand  how to process solvency messages
+	v, err := o.thorchainBridge.GetThorchainVersion()
+	if err != nil {
+		o.logger.Err(err).Msg("fail to get THORChain version")
+		return nil
+	}
+	if v.LT(semver.MustParse("0.63.0")) {
+		o.logger.Info().Msgf("THORChain version is %s , less than 0.63.0", v)
+		return nil
+	}
+	nodeStatus, err := o.thorchainBridge.FetchNodeStatus()
+	if err != nil {
+		return fmt.Errorf("failed to get node status: %w", err)
+	}
+
+	if nodeStatus != stypes.NodeStatus_Active {
+		return nil
+	}
+
+	msg := o.thorchainBridge.GetSolvencyMsg(height, chain, pubKey, coins)
+	if msg == nil {
+		return fmt.Errorf("fail to create solvency message")
+	}
+	if err := msg.ValidateBasic(); err != nil {
+		return err
+	}
+	txID, err := o.thorchainBridge.Broadcast(msg)
+	if err != nil {
+		strHeight := strconv.FormatInt(height, 10)
+		o.errCounter.WithLabelValues("fail_to_send_to_thorchain", strHeight).Inc()
+		return fmt.Errorf("fail to send the MsgSolvency to thorchain: %w", err)
+	}
+	o.logger.Info().Int64("block", height).Str("chain", chain.String()).Str("thorchain hash", txID.String()).Msg("sign and send MsgSolvency to thorchain successfully")
 	return nil
 }
 
@@ -486,6 +551,34 @@ func (o *Observer) getThorchainTxIns(txIn types.TxIn) (stypes.ObservedTxs, error
 		txs = append(txs, tx)
 	}
 	return txs, nil
+}
+
+func (o *Observer) processSolvencyQueue() {
+	for {
+		select {
+		case <-o.stopChan:
+			return
+		case solvencyItem, more := <-o.globalSolvencyQueue:
+			if !more {
+				return
+			}
+			if solvencyItem.Chain.IsEmpty() || solvencyItem.Coins.IsEmpty() || solvencyItem.PubKey.IsEmpty() {
+				continue
+			}
+			o.logger.Debug().Msgf("solvency:%+v", solvencyItem)
+			targetChain, ok := o.chains[solvencyItem.Chain]
+			if !ok {
+				continue
+			}
+			if !targetChain.IsBlockScannerHealthy() {
+				continue
+			}
+			if err := o.sendSolvencyToThorchain(solvencyItem.Height, solvencyItem.Chain, solvencyItem.PubKey, solvencyItem.Coins); err != nil {
+				o.errCounter.WithLabelValues("fail_to_broadcast_solvency", "").Inc()
+				o.logger.Error().Err(err).Msg("fail to broadcast solvency tx")
+			}
+		}
+	}
 }
 
 // Stop the observer

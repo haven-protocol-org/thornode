@@ -20,7 +20,7 @@ func (s *HandlerSwapSuite) TestValidate(c *C) {
 	ctx, _ := setupKeeperForTest(c)
 
 	keeper := &TestSwapHandleKeeper{
-		activeNodeAccount: GetRandomNodeAccount(NodeActive),
+		activeNodeAccount: GetRandomValidatorNode(NodeActive),
 	}
 
 	handler := NewSwapHandler(NewDummyMgrWithKeeper(keeper))
@@ -115,7 +115,7 @@ func (s *HandlerSwapSuite) TestValidation(c *C) {
 	pools[pool.Asset] = pool
 	keeper := &TestSwapHandleKeeper{
 		pools:             pools,
-		activeNodeAccount: GetRandomNodeAccount(NodeActive),
+		activeNodeAccount: GetRandomValidatorNode(NodeActive),
 		synthSupply:       cosmos.ZeroUint(),
 	}
 	mgr.K = keeper
@@ -151,7 +151,7 @@ func (s *HandlerSwapSuite) TestHandle(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	keeper := &TestSwapHandleKeeper{
 		pools:             make(map[common.Asset]Pool),
-		activeNodeAccount: GetRandomNodeAccount(NodeActive),
+		activeNodeAccount: GetRandomValidatorNode(NodeActive),
 		synthSupply:       cosmos.ZeroUint(),
 	}
 	mgr.K = keeper
@@ -240,11 +240,6 @@ func (s *HandlerSwapSuite) TestHandle(c *C) {
 	c.Assert(err, NotNil)
 	c.Assert(result, IsNil)
 
-	msgSwap1 := NewMsgSwap(GetRandomTx(), common.RuneB1AAsset, GetRandomBNBAddress(), cosmos.ZeroUint(), common.NoAddress, cosmos.ZeroUint(), GetRandomBech32Addr())
-	result, err = handler.Run(ctx, msgSwap1)
-	c.Assert(err, NotNil)
-	c.Assert(err.Error(), Equals, fmt.Sprintf("target asset can't be %s", msgSwap1.TargetAsset.String()))
-	c.Assert(result, IsNil)
 	msgSwap2 := NewMsgSwap(GetRandomTx(), common.Rune67CAsset, GetRandomBNBAddress(), cosmos.ZeroUint(), common.NoAddress, cosmos.ZeroUint(), GetRandomBech32Addr())
 	result, err = handler.Run(ctx, msgSwap2)
 	c.Assert(err, NotNil)
@@ -257,7 +252,7 @@ func (s *HandlerSwapSuite) TestDoubleSwap(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	keeper := &TestSwapHandleKeeper{
 		pools:             make(map[common.Asset]Pool),
-		activeNodeAccount: GetRandomNodeAccount(NodeActive),
+		activeNodeAccount: GetRandomValidatorNode(NodeActive),
 		synthSupply:       cosmos.ZeroUint(),
 	}
 	mgr.K = keeper

@@ -50,20 +50,22 @@ func (h VersionHandler) validate(ctx cosmos.Context, msg MsgSetVersion) error {
 }
 
 func (h VersionHandler) validateV1(ctx cosmos.Context, msg MsgSetVersion) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h VersionHandler) validateCurrent(ctx cosmos.Context, msg MsgSetVersion) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
 
 	nodeAccount, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.Signer)
 	if err != nil {
+		ctx.Logger().Error("fail to get node account", "error", err, "address", msg.Signer.String())
 		return cosmos.ErrUnauthorized(fmt.Sprintf("%s is not authorizaed", msg.Signer))
 	}
 	if nodeAccount.IsEmpty() {
+		ctx.Logger().Error("unauthorized account", "address", msg.Signer.String())
 		return cosmos.ErrUnauthorized(fmt.Sprintf("%s is not authorizaed", msg.Signer))
+	}
+	if nodeAccount.Type != NodeTypeValidator {
+		ctx.Logger().Error("unauthorized account, node account must be a validator", "address", msg.Signer.String(), "type", nodeAccount.Type)
+		return cosmos.ErrUnauthorized(fmt.Sprintf("%s is not authorized", msg.Signer))
 	}
 
 	cost, err := h.mgr.Keeper().GetMimir(ctx, constants.NativeTransactionFee.String())
@@ -80,17 +82,15 @@ func (h VersionHandler) validateCurrent(ctx cosmos.Context, msg MsgSetVersion) e
 func (h VersionHandler) handle(ctx cosmos.Context, msg MsgSetVersion) error {
 	ctx.Logger().Info("handleMsgSetVersion request", "Version:", msg.Version)
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.57.0")) {
+		return h.handleV57(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.handleV1(ctx, msg)
 	}
 	return errBadVersion
 }
 
-func (h VersionHandler) handleV1(ctx cosmos.Context, msg MsgSetVersion) error {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h VersionHandler) handleCurrent(ctx cosmos.Context, msg MsgSetVersion) error {
+func (h VersionHandler) handleV57(ctx cosmos.Context, msg MsgSetVersion) error {
 	nodeAccount, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.Signer)
 	if err != nil {
 		return cosmos.ErrUnauthorized(fmt.Errorf("unable to find account(%s):%w", msg.Signer, err).Error())
@@ -122,7 +122,8 @@ func (h VersionHandler) handleCurrent(ctx cosmos.Context, msg MsgSetVersion) err
 	// add bond to reserve
 	coin := common.NewCoin(common.RuneNative, cost)
 	if !cost.IsZero() {
-		if err := h.mgr.Keeper().SendFromAccountToModule(ctx, msg.Signer, ReserveName, common.NewCoins(coin)); err != nil {
+		// cost has been deducted from node account's bond , thus just send the cost from bond to reserve
+		if err := h.mgr.Keeper().SendFromModuleToModule(ctx, BondName, ReserveName, common.NewCoins(coin)); err != nil {
 			ctx.Logger().Error("fail to transfer funds from bond to reserve", "error", err)
 			return err
 		}

@@ -23,10 +23,10 @@ import (
 	"gitlab.com/thorchain/thornode/constants"
 )
 
-// GetRandomNodeAccount create a random generated node account , used for test purpose
-func GetRandomNodeAccount(status NodeStatus) NodeAccount {
+// GetRandomValidatorNode creates a random validator node account, used for testing
+func GetRandomValidatorNode(status NodeStatus) NodeAccount {
 	s := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(s)
+	r := rand.New(s) // #nosec G404 this is a method only used for test purpose
 	accts := simtypes.RandomAccounts(r, 1)
 
 	k, _ := cosmos.Bech32ifyPubKey(cosmos.Bech32PubKeyTypeConsPub, accts[0].PubKey)
@@ -43,6 +43,32 @@ func GetRandomNodeAccount(status NodeStatus) NodeAccount {
 		na.Bond = cosmos.NewUint(1000 * common.One)
 	}
 	na.IPAddress = "192.168.0.1"
+	na.Type = NodeType_TypeValidator
+
+	return na
+}
+
+// GetRandomVaultNode creates a random vault node account, used for testing
+func GetRandomVaultNode(status NodeStatus) NodeAccount {
+	s := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(s) // #nosec G404 this is a method only used for test purpose
+	accts := simtypes.RandomAccounts(r, 1)
+
+	k, _ := cosmos.Bech32ifyPubKey(cosmos.Bech32PubKeyTypeConsPub, accts[0].PubKey)
+	pubKeys := common.PubKeySet{
+		Secp256k1: GetRandomPubKey(),
+		Ed25519:   GetRandomPubKey(),
+	}
+	addr, _ := pubKeys.Secp256k1.GetThorAddress()
+	bondAddr := common.Address(addr.String())
+	na := NewNodeAccount(addr, status, pubKeys, k, cosmos.NewUint(100*common.One), bondAddr, 1)
+	na.Version = constants.SWVersion.String()
+	if na.Status == NodeStatus_Active {
+		na.ActiveBlockHeight = 10
+		na.Bond = cosmos.NewUint(1000 * common.One)
+	}
+	na.IPAddress = "192.168.0.1"
+	na.Type = NodeType_TypeVault
 
 	return na
 }
@@ -72,7 +98,7 @@ func GetRandomBech32Addr() cosmos.AccAddress {
 }
 
 func GetRandomBech32ConsensusPubKey() string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404 this is a method only used for test purpose
 	accts := simtypes.RandomAccounts(r, 1)
 	result, err := cosmos.Bech32ifyPubKey(cosmos.Bech32PubKeyTypeConsPub, accts[0].PubKey)
 	if err != nil {
@@ -142,7 +168,7 @@ func GetRandomVault() Vault {
 }
 
 func GetRandomPubKey() common.PubKey {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404
 	accts := simtypes.RandomAccounts(r, 1)
 	bech32PubKey, _ := cosmos.Bech32ifyPubKey(cosmos.Bech32PubKeyTypeAccPub, accts[0].PubKey)
 	pk, _ := common.NewPubKey(bech32PubKey)
@@ -176,6 +202,7 @@ func MakeTestCodec() *codec.LegacyAmino {
 
 // GetCurrentVersion - intended for unit tests, fetches the current version of
 // THORNode via `version` file
+// #nosec G304 this is a method only used for test purpose
 func GetCurrentVersion() semver.Version {
 	_, filename, _, _ := runtime.Caller(0)
 	dir := path.Join(path.Dir(filename), "../../..")

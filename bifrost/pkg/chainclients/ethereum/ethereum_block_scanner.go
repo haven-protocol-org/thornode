@@ -3,6 +3,7 @@ package ethereum
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -17,12 +18,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
 	"gitlab.com/thorchain/thornode/bifrost/blockscanner"
 	btypes "gitlab.com/thorchain/thornode/bifrost/blockscanner/types"
 	"gitlab.com/thorchain/thornode/bifrost/config"
 	"gitlab.com/thorchain/thornode/bifrost/metrics"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/ethereum/types"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
 	"gitlab.com/thorchain/thornode/bifrost/thorclient"
 	stypes "gitlab.com/thorchain/thornode/bifrost/thorclient/types"
@@ -30,6 +31,9 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
 )
+
+// SolvencyReporter is to report solvency info to THORNode
+type SolvencyReporter func(int64) error
 
 const (
 	BlockCacheSize         = 6000
@@ -64,9 +68,12 @@ type ETHScanner struct {
 	tokens               *LevelDBTokenMeta
 	bridge               *thorclient.ThorchainBridge
 	pubkeyMgr            pubkeymanager.PubKeyValidator
-	eipSigner            etypes.EIP155Signer
+	eipSigner            etypes.Signer
 	currentBlockHeight   int64
 	gasCache             []*big.Int
+	solvencyReporter     SolvencyReporter
+	whitelistTokens      []ERC20Token
+	signerCacheManager   *signercache.CacheManager
 }
 
 // NewETHScanner create a new instance of ETHScanner
@@ -76,7 +83,9 @@ func NewETHScanner(cfg config.BlockScannerConfiguration,
 	client *ethclient.Client,
 	bridge *thorclient.ThorchainBridge,
 	m *metrics.Metrics,
-	pubkeyMgr pubkeymanager.PubKeyValidator) (*ETHScanner, error) {
+	pubkeyMgr pubkeymanager.PubKeyValidator,
+	solvencyReporter SolvencyReporter,
+	signerCacheManager *signercache.CacheManager) (*ETHScanner, error) {
 	if storage == nil {
 		return nil, errors.New("storage is nil")
 	}
@@ -105,6 +114,12 @@ func NewETHScanner(cfg config.BlockScannerConfiguration,
 	if err != nil {
 		return nil, fmt.Errorf("fail to create contract abi: %w", err)
 	}
+	// load token list
+	var whitelistTokens TokenList
+	if err := json.Unmarshal(tokenList, &whitelistTokens); err != nil {
+		return nil, fmt.Errorf("fail to load token list,err: %w", err)
+	}
+
 	return &ETHScanner{
 		cfg:                  cfg,
 		logger:               log.Logger.With().Str("module", "block_scanner").Str("chain", common.ETHChain.String()).Logger(),
@@ -120,9 +135,12 @@ func NewETHScanner(cfg config.BlockScannerConfiguration,
 		bridge:               bridge,
 		vaultABI:             vaultABI,
 		erc20ABI:             erc20ABI,
-		eipSigner:            etypes.NewEIP155Signer(chainID),
+		eipSigner:            etypes.NewLondonSigner(chainID),
 		pubkeyMgr:            pubkeyMgr,
 		gasCache:             make([]*big.Int, 0),
+		solvencyReporter:     solvencyReporter,
+		whitelistTokens:      whitelistTokens.Tokens,
+		signerCacheManager:   signerCacheManager,
 	}, nil
 }
 
@@ -147,7 +165,7 @@ func (e *ETHScanner) GetHeight() (int64, error) {
 }
 
 // FetchMemPool get tx from mempool
-func (e *ETHScanner) FetchMemPool(height int64) (stypes.TxIn, error) {
+func (e *ETHScanner) FetchMemPool(_ int64) (stypes.TxIn, error) {
 	return stypes.TxIn{}, nil
 }
 
@@ -162,7 +180,6 @@ func (e *ETHScanner) FetchTxs(height int64) (stypes.TxIn, error) {
 	if err != nil {
 		return stypes.TxIn{}, err
 	}
-
 	txIn, err := e.processBlock(block)
 	if err != nil {
 		e.logger.Error().Err(err).Int64("height", height).Msg("fail to search tx in block")
@@ -204,6 +221,11 @@ func (e *ETHScanner) FetchTxs(height int64) (stypes.TxIn, error) {
 			if _, err := e.bridge.PostNetworkFee(height, common.ETHChain, MaxContractGas, gasValue); err != nil {
 				e.logger.Err(err).Msg("fail to post ETH chain single transfer fee to THORNode")
 			}
+		}
+	}
+	if e.solvencyReporter != nil {
+		if err := e.solvencyReporter(height); err != nil {
+			e.logger.Err(err).Msg("fail to report Solvency info to THORNode")
 		}
 	}
 	return txIn, nil
@@ -255,94 +277,6 @@ func (e *ETHScanner) getHighestGasPrice() *big.Int {
 		}
 	}
 	return gasPrice
-}
-
-// vaultDepositEvent represent a vault deposit
-type vaultDepositEvent struct {
-	To     ecommon.Address
-	Asset  ecommon.Address
-	Amount *big.Int
-	Memo   string
-}
-
-func (e *ETHScanner) parseDeposit(log etypes.Log) (vaultDepositEvent, error) {
-	const DepositEventName = "Deposit"
-	event := vaultDepositEvent{}
-	if err := e.unpackVaultLog(&event, DepositEventName, log); err != nil {
-		return event, fmt.Errorf("fail to unpack event: %w", err)
-	}
-	return event, nil
-}
-
-// RouterCoin represent the coins transfer between vault
-type RouterCoin struct {
-	Asset  ecommon.Address
-	Amount *big.Int
-}
-
-type routerVaultTransfer struct {
-	OldVault ecommon.Address
-	NewVault ecommon.Address
-	Coins    []RouterCoin
-	Memo     string
-}
-
-func (e *ETHScanner) parseVaultTransfer(log etypes.Log) (routerVaultTransfer, error) {
-	const vaultTransferEventName = "VaultTransfer"
-	event := routerVaultTransfer{}
-	if err := e.unpackVaultLog(&event, vaultTransferEventName, log); err != nil {
-		return event, fmt.Errorf("fail to unpack event: %w", err)
-	}
-	return event, nil
-}
-
-func (e *ETHScanner) unpackVaultLog(out interface{}, event string, log etypes.Log) error {
-	if len(log.Data) > 0 {
-		if err := e.vaultABI.UnpackIntoInterface(out, event, log.Data); err != nil {
-			return fmt.Errorf("fail to parse event: %w", err)
-		}
-	}
-	var indexed abi.Arguments
-	for _, arg := range e.vaultABI.Events[event].Inputs {
-		if arg.Indexed {
-			indexed = append(indexed, arg)
-		}
-	}
-	return abi.ParseTopics(out, indexed, log.Topics[1:])
-}
-
-type vaultTransferOutEvent struct {
-	Vault  ecommon.Address
-	To     ecommon.Address
-	Asset  ecommon.Address
-	Amount *big.Int
-	Memo   string
-}
-
-func (e *ETHScanner) parseTransferOut(log etypes.Log) (vaultTransferOutEvent, error) {
-	const TransferOutEventName = "TransferOut"
-	event := vaultTransferOutEvent{}
-	if err := e.unpackVaultLog(&event, TransferOutEventName, log); err != nil {
-		return event, fmt.Errorf("fail to parse transfer out event")
-	}
-	return event, nil
-}
-
-type vaultTransferAllowanceEvent struct {
-	OldVault ecommon.Address
-	NewVault ecommon.Address
-	Asset    ecommon.Address
-	Amount   *big.Int
-	Memo     string
-}
-
-func (e *ETHScanner) parseTransferAllowanceEvent(log etypes.Log) (vaultTransferAllowanceEvent, error) {
-	const TransferAllowanceEventName = "TransferAllowance"
-	event := vaultTransferAllowanceEvent{}
-	if err := e.unpackVaultLog(&event, TransferAllowanceEventName, log); err != nil {
-		return event, fmt.Errorf("fail to parse transfer allowance event")
-	}
-	return event, nil
 }
 
 // processBlock extracts transactions from block
@@ -406,15 +340,7 @@ func (e *ETHScanner) extractTxs(block *etypes.Block) (stypes.TxIn, error) {
 		txInItem, err := e.fromTxToTxIn(tx)
 		if err != nil {
 			e.logger.Error().Err(err).Str("hash", tx.Hash().Hex()).Msg("fail to get one tx from server")
-			// when the err is InvalidChainID which means the transaction is not mean to be on this chain
-			// so it is safe for bifrost to ignore the transaction
-			if errors.Is(err, etypes.ErrInvalidChainId) {
-				continue
-			}
-			e.errCounter.WithLabelValues("fail_get_tx", "").Inc()
-			// if THORNode fail to get one tx hash from server, then THORNode should bail, because THORNode might miss tx
-			// if THORNode bail here, then THORNode should retry later
-			return stypes.TxIn{}, fmt.Errorf("fail to get one tx from server: %w", err)
+			continue
 		}
 		if txInItem == nil {
 			continue
@@ -446,6 +372,10 @@ func (e *ETHScanner) onObservedTxIn(txIn stypes.TxInItem, blockHeight int64) {
 		e.logger.Err(err).Msgf("fail to get block meta on block height(%d)", blockHeight)
 		return
 	}
+	txInbound.Count = strconv.Itoa(len(txInbound.TxArray))
+	e.logger.Debug().Int64("block", int64(block.NumberU64())).Msgf("there are %s tx in this block need to process", txInbound.Count)
+	return txInbound, nil
+}
 
 	if blockMeta == nil {
 		e.logger.Error().Msgf("block meta for height:%d is nil", blockHeight)
@@ -604,7 +534,6 @@ func (e *ETHScanner) getRPCBlock(height int64) (*etypes.Block, error) {
 	}
 	return block, nil
 }
-
 func (e *ETHScanner) getDecimals(token string) (uint64, error) {
 	if IsETH(token) {
 		return defaultDecimals, nil
@@ -640,7 +569,7 @@ func (e *ETHScanner) getDecimals(token string) (uint64, error) {
 
 // replace the . in symbol to *, and replace the - in symbol to #
 // because . and - had been reserved to use in THORChain symbol
-var symbolReplacer = strings.NewReplacer(".", "*", "-", "#")
+var symbolReplacer = strings.NewReplacer(".", "*", "-", "#", `\u0000`, "", "\u0000", "")
 
 func sanitiseSymbol(symbol string) string {
 	return symbolReplacer.Replace(symbol)
@@ -664,21 +593,28 @@ func (e *ETHScanner) getSymbol(token string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("fail to call to smart contract and get symbol: %w", err)
 	}
+	var symbol string
 	output, err := e.erc20ABI.Unpack(symbolMethod, res)
 	if err != nil {
-		return "", fmt.Errorf("fail to unpack symbol method call: %w", err)
+		symbol = string(res)
+		e.logger.Err(err).Msgf("fail to unpack symbol method call,token address: %s , symbol: %s", token, symbol)
+		return sanitiseSymbol(symbol), nil
 	}
-	symbol := *abi.ConvertType(output[0], new(string)).(*string)
+	symbol = *abi.ConvertType(output[0], new(string)).(*string)
 	return sanitiseSymbol(symbol), nil
 }
 
-func (e *ETHScanner) isToSmartContract(receipt *etypes.Receipt) bool {
+// isToValidContractAddress this method make sure the transaction to address is to THORChain router or a whitelist address
+func (e *ETHScanner) isToValidContractAddress(addr *ecommon.Address, includeWhiteList bool) bool {
+	// get the smart contract used by thornode
 	contractAddresses := e.pubkeyMgr.GetContracts(common.ETHChain)
-	for _, l := range receipt.Logs {
-		for _, item := range contractAddresses {
-			if strings.EqualFold(item.String(), l.Address.String()) {
-				return true
-			}
+	if includeWhiteList {
+		contractAddresses = append(contractAddresses, whitelistSmartContractAddres...)
+	}
+	// combine the whitelist smart contract address
+	for _, item := range contractAddresses {
+		if strings.EqualFold(item.String(), addr.String()) {
+			return true
 		}
 	}
 	return false
@@ -690,6 +626,16 @@ func (e *ETHScanner) getTokenMeta(token string) (types.TokenMeta, error) {
 		return types.TokenMeta{}, fmt.Errorf("fail to get token meta: %w", err)
 	}
 	if tokenMeta.IsEmpty() {
+		isWhiteListToken := false
+		for _, item := range e.whitelistTokens {
+			if strings.EqualFold(item.Address, token) {
+				isWhiteListToken = true
+				break
+			}
+		}
+		if !isWhiteListToken {
+			return types.TokenMeta{}, fmt.Errorf("token: %s is not whitelisted", token)
+		}
 		symbol, err := e.getSymbol(token)
 		if err != nil {
 			return types.TokenMeta{}, fmt.Errorf("fail to get symbol: %w", err)
@@ -755,14 +701,10 @@ func (e *ETHScanner) getAssetFromTokenAddress(token string) (common.Asset, error
 	if err != nil {
 		return common.EmptyAsset, fmt.Errorf("fail to get token meta: %w", err)
 	}
-	asset := common.ETHAsset
-	if tokenMeta.Symbol != common.ETHChain.String() {
-		asset, err = common.NewAsset(fmt.Sprintf("ETH.%s-%s", tokenMeta.Symbol, strings.ToUpper(tokenMeta.Address)))
-		if err != nil {
-			return common.EmptyAsset, fmt.Errorf("fail to create asset: %w", err)
-		}
+	if tokenMeta.IsEmpty() {
+		return common.EmptyAsset, fmt.Errorf("token metadata is empty")
 	}
-	return asset, nil
+	return common.NewAsset(fmt.Sprintf("ETH.%s-%s", tokenMeta.Symbol, strings.ToUpper(tokenMeta.Address)))
 }
 
 // getTxInFromSmartContract returns txInItem
@@ -781,78 +723,35 @@ func (e *ETHScanner) getTxInFromSmartContract(tx *etypes.Transaction, receipt *e
 		e.logger.Info().Msgf("tx(%s) state: %d means failed , ignore", tx.Hash().String(), receipt.Status)
 		return nil, nil
 	}
-	for _, item := range receipt.Logs {
-		switch item.Topics[0].String() {
-		case depositEvent:
-			depositEvt, err := e.parseDeposit(*item)
-			if err != nil {
-				return nil, fmt.Errorf("fail to parse deposit event: %w", err)
-			}
-			e.logger.Info().Msgf("deposit:%+v", depositEvt)
-			txInItem.To = depositEvt.To.String()
-			txInItem.Memo = depositEvt.Memo
-			asset, err := e.getAssetFromTokenAddress(depositEvt.Asset.String())
-			if err != nil {
-				return nil, fmt.Errorf("fail to get asset from token address: %w", err)
-			}
-			decimals := e.getTokenDecimalsForTHORChain(depositEvt.Asset.String())
-			e.logger.Info().Msgf("token:%s,decimals:%d", depositEvt.Asset, decimals)
-			txInItem.Coins = append(txInItem.Coins, common.NewCoin(asset, e.convertAmount(depositEvt.Asset.String(), depositEvt.Amount)).WithDecimals(decimals))
-		case transferOutEvent:
-			transferOutEvt, err := e.parseTransferOut(*item)
-			if err != nil {
-				return nil, fmt.Errorf("fail to parse transfer out event: %w", err)
-			}
-			e.logger.Info().Msgf("transfer out: %+v", transferOutEvt)
-			txInItem.Sender = transferOutEvt.Vault.String()
-			txInItem.To = transferOutEvt.To.String()
-			txInItem.Memo = transferOutEvt.Memo
-			asset, err := e.getAssetFromTokenAddress(transferOutEvt.Asset.String())
-			if err != nil {
-				return nil, fmt.Errorf("fail to get asset from token address: %w", err)
-			}
-			decimals := e.getTokenDecimalsForTHORChain(transferOutEvt.Asset.String())
-			txInItem.Coins = append(txInItem.Coins, common.NewCoin(asset, e.convertAmount(transferOutEvt.Asset.String(), transferOutEvt.Amount)).WithDecimals(decimals))
-		case transferAllowanceEvent:
-			transferAllowanceEvt, err := e.parseTransferAllowanceEvent(*item)
-			if err != nil {
-				return nil, fmt.Errorf("fail to parse transfer allowance event: %w", err)
-			}
-			e.logger.Info().Msgf("transfer allowance: %+v", transferAllowanceEvt)
-			txInItem.Sender = transferAllowanceEvt.OldVault.String()
-			txInItem.To = transferAllowanceEvt.NewVault.String()
-			txInItem.Memo = transferAllowanceEvt.Memo
-			asset, err := e.getAssetFromTokenAddress(transferAllowanceEvt.Asset.String())
-			if err != nil {
-				return nil, fmt.Errorf("fail to get asset from token address: %w", err)
-			}
-			decimals := e.getTokenDecimalsForTHORChain(transferAllowanceEvt.Asset.String())
-			txInItem.Coins = append(txInItem.Coins, common.NewCoin(asset, e.convertAmount(transferAllowanceEvt.Asset.String(), transferAllowanceEvt.Amount)).WithDecimals(decimals))
-		case vaultTransferEvent:
-			transferEvent, err := e.parseVaultTransfer(*item)
-			if err != nil {
-				return nil, fmt.Errorf("fail to parse vault transfer event: %w", err)
-			}
-			e.logger.Info().Msgf("vault transfer: %+v", transferEvent)
-			txInItem.Sender = transferEvent.OldVault.String()
-			txInItem.To = transferEvent.NewVault.String()
-			txInItem.Memo = transferEvent.Memo
-			for _, item := range transferEvent.Coins {
-				asset, err := e.getAssetFromTokenAddress(item.Asset.String())
-				if err != nil {
-					return nil, fmt.Errorf("fail to get asset from token address: %w", err)
-				}
-				decimals := e.getTokenDecimalsForTHORChain(item.Asset.String())
-				txInItem.Coins = append(txInItem.Coins, common.NewCoin(asset, e.convertAmount(item.Asset.String(), item.Amount)).WithDecimals(decimals))
+	p := NewSmartContractLogParser(e.isToValidContractAddress,
+		e.getAssetFromTokenAddress,
+		e.getTokenDecimalsForTHORChain,
+		e.convertAmount,
+		e.vaultABI)
+	// txInItem will be changed in p.getTxInItem function, so if the function return an error
+	// txInItem should be abandoned
+	isVaultTransfer, err := p.getTxInItem(receipt.Logs, txInItem)
+	if err != nil {
+		return nil, fmt.Errorf("fail to parse logs, err: %w", err)
+	}
+	if isVaultTransfer {
+		contractAddresses := e.pubkeyMgr.GetContracts(common.ETHChain)
+		isDirectlyToRouter := false
+		for _, item := range contractAddresses {
+			if strings.EqualFold(item.String(), tx.To().String()) {
+				isDirectlyToRouter = true
+				break
 			}
 		}
-	}
-	// it is important to keep this part outside the above loop, as when we do router upgrade , which might generate multiple deposit event , along with tx that has eth value in it
-	ethValue := cosmos.NewUintFromBigInt(tx.Value())
-	if !ethValue.IsZero() {
-		ethValue = e.convertAmount(ethToken, tx.Value())
-		if txInItem.Coins.GetCoin(common.ETHAsset).IsEmpty() && !ethValue.IsZero() {
-			txInItem.Coins = append(txInItem.Coins, common.NewCoin(common.ETHAsset, ethValue))
+		if isDirectlyToRouter {
+			// it is important to keep this part outside the above loop, as when we do router upgrade , which might generate multiple deposit event , along with tx that has eth value in it
+			ethValue := cosmos.NewUintFromBigInt(tx.Value())
+			if !ethValue.IsZero() {
+				ethValue = e.convertAmount(ethToken, tx.Value())
+				if txInItem.Coins.GetCoin(common.ETHAsset).IsEmpty() && !ethValue.IsZero() {
+					txInItem.Coins = append(txInItem.Coins, common.NewCoin(common.ETHAsset, ethValue))
+				}
+			}
 		}
 	}
 	e.logger.Info().Msgf("tx: %s, gas price: %s, gas used: %d,receipt status:%d", txInItem.Tx, tx.GasPrice().String(), receipt.GasUsed, receipt.Status)
@@ -903,6 +802,33 @@ func (e *ETHScanner) getTxInFromTransaction(tx *etypes.Transaction) (*stypes.TxI
 		return nil, nil
 	}
 	return txInItem, nil
+}
+
+func (e *ETHScanner) fromTxToTxIn(tx *etypes.Transaction) (*stypes.TxInItem, error) {
+	if tx == nil || tx.To() == nil {
+		return nil, nil
+	}
+	receipt, err := e.getReceipt(tx.Hash().Hex())
+	if err != nil {
+		if errors.Is(err, ethereum.NotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("fail to get transaction receipt: %w", err)
+	}
+	if receipt.Status != 1 {
+		// a transaction that is failed
+		// remove the Signer cache , so the tx out item can be retried
+		if e.signerCacheManager != nil {
+			e.signerCacheManager.RemoveSigned(tx.Hash().String())
+		}
+		e.logger.Debug().Msgf("tx(%s) state: %d means failed , ignore", tx.Hash().String(), receipt.Status)
+		return nil, nil
+	}
+
+	if e.isToValidContractAddress(tx.To(), true) {
+		return e.getTxInFromSmartContract(tx, receipt)
+	}
+	return e.getTxInFromTransaction(tx)
 }
 
 func (e *ETHScanner) fromTxToTxIn(tx *etypes.Transaction) (*stypes.TxInItem, error) {

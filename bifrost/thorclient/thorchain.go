@@ -54,6 +54,7 @@ const (
 	ChainVersionEndpoint     = "/thorchain/version"
 	InboundAddressesEndpoint = "/thorchain/inbound_addresses"
 	PoolsEndpoint            = "/thorchain/pools"
+	THORNameEndpoint         = "/thorchain/thorname/%s"
 )
 
 // ThorchainBridge will be used to send tx to THORChain
@@ -68,6 +69,9 @@ type ThorchainBridge struct {
 	seqNumber     uint64
 	httpClient    *retryablehttp.Client
 	broadcastLock *sync.RWMutex
+
+	lastBlockHeightCheck     time.Time
+	lastThorchainBlockHeight int64
 }
 
 // NewThorchainBridge create a new instance of ThorchainBridge
@@ -117,7 +121,7 @@ func MakeLegacyCodec() *codec.LegacyAmino {
 func (b *ThorchainBridge) GetContext() client.Context {
 	ctx := client.Context{}
 	ctx = ctx.WithKeyring(b.keys.GetKeybase())
-	ctx = ctx.WithChainID("thorchain")
+	ctx = ctx.WithChainID(string(b.cfg.ChainID))
 	ctx = ctx.WithHomeDir(b.cfg.ChainHomeFolder)
 	ctx = ctx.WithFromName(b.cfg.SignerName)
 	ctx = ctx.WithFromAddress(b.keys.GetSignerInfo().GetAddress())
@@ -240,9 +244,19 @@ func (b *ThorchainBridge) PostKeysignFailure(blame stypes.Blame, height int64, m
 	return b.Broadcast(msg)
 }
 
-// GetErrataStdTx get errata tx from params
+// GetErrataMsg get errata tx from params
 func (b *ThorchainBridge) GetErrataMsg(txID common.TxID, chain common.Chain) sdk.Msg {
 	return stypes.NewMsgErrataTx(txID, chain, b.keys.GetSignerInfo().GetAddress())
+}
+
+// GetSolvencyMsg create MsgSolvency from the given parameters
+func (b *ThorchainBridge) GetSolvencyMsg(height int64, chain common.Chain, pubKey common.PubKey, coins common.Coins) sdk.Msg {
+	msg, err := stypes.NewMsgSolvency(chain, pubKey, coins, height, b.keys.GetSignerInfo().GetAddress())
+	if err != nil {
+		b.logger.Err(err).Msg("fail to create MsgSolvency")
+		return nil
+	}
+	return msg
 }
 
 // GetKeygenStdTx get keygen tx from params
@@ -584,4 +598,21 @@ func (b *ThorchainBridge) GetPools() (stypes.Pools, error) {
 		return nil, fmt.Errorf("fail to unmarshal pools from json: %w", err)
 	}
 	return pools, nil
+}
+
+// GetTHORName get THORName from THORChain
+func (b *ThorchainBridge) GetTHORName(name string) (stypes.THORName, error) {
+	p := fmt.Sprintf(THORNameEndpoint, name)
+	buf, s, err := b.getWithPath(p)
+	if err != nil {
+		return stypes.THORName{}, fmt.Errorf("fail to get THORName: %w", err)
+	}
+	if s != http.StatusOK {
+		return stypes.THORName{}, fmt.Errorf("unexpected status code: %d", s)
+	}
+	var tn stypes.THORName
+	if err := json.Unmarshal(buf, &tn); err != nil {
+		return stypes.THORName{}, fmt.Errorf("fail to unmarshal THORNames from json: %w", err)
+	}
+	return tn, nil
 }

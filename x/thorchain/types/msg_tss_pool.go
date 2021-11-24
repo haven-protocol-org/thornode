@@ -86,18 +86,26 @@ func (m *MsgTssPool) ValidateBasic() error {
 	if len(m.PubKeys) != len(pks) {
 		return cosmos.ErrUnknownRequest("One or more pubkeys were not valid")
 	}
+	isSignerInPubKeys := false
 	for _, pk := range pks {
 		if pk.IsEmpty() {
 			return cosmos.ErrUnknownRequest("Pubkey cannot be empty")
 		}
+		signerAddress, err := pk.GetThorAddress()
+		if err != nil {
+			return cosmos.ErrUnknownRequest("invalid pub key")
+		}
+		if signerAddress.Equals(m.Signer) {
+			isSignerInPubKeys = true
+		}
 	}
-	// PoolPubKey and cryotonote data can't be empty only when keygen success
+	if !isSignerInPubKeys {
+		return cosmos.ErrUnknownRequest("signer is not part of keygen member")
+	}
+	// PoolPubKey can't be empty only when keygen success
 	if m.IsSuccess() {
 		if m.PoolPubKey.IsEmpty() {
 			return cosmos.ErrUnknownRequest("Pool pubkey cannot be empty")
-		}
-		if len(m.CryptonoteData) != 64 {
-			return cosmos.ErrUnknownRequest("Invalid Cryotonote Data")
 		}
 	}
 	// ensure pool pubkey is a valid bech32 pubkey
@@ -144,11 +152,6 @@ func (m MsgTssPool) GetPubKeys() common.PubKeys {
 		pubkeys = append(pubkeys, pk)
 	}
 	return pubkeys
-}
-
-// GetCnData returns the cryotonote data for this message
-func (m MsgTssPool) GetCnData() string {
-	return m.CryptonoteData
 }
 
 // GetSignBytes encodes the message for signing

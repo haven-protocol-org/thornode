@@ -50,10 +50,6 @@ func (h IPAddressHandler) validate(ctx cosmos.Context, msg MsgSetIPAddress) erro
 }
 
 func (h IPAddressHandler) validateV1(ctx cosmos.Context, msg MsgSetIPAddress) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h IPAddressHandler) validateCurrent(ctx cosmos.Context, msg MsgSetIPAddress) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
@@ -66,6 +62,10 @@ func (h IPAddressHandler) validateCurrent(ctx cosmos.Context, msg MsgSetIPAddres
 	if nodeAccount.IsEmpty() {
 		ctx.Logger().Error("unauthorized account", "address", msg.Signer.String())
 		return cosmos.ErrUnauthorized(fmt.Sprintf("%s is not authorizaed", msg.Signer))
+	}
+	if nodeAccount.Type != NodeTypeValidator {
+		ctx.Logger().Error("unauthorized account, node account must be a validator", "address", msg.Signer.String(), "type", nodeAccount.Type)
+		return cosmos.ErrUnauthorized(fmt.Sprintf("%s is not authorized", msg.Signer))
 	}
 
 	cost, err := h.mgr.Keeper().GetMimir(ctx, constants.NativeTransactionFee.String())
@@ -82,18 +82,16 @@ func (h IPAddressHandler) validateCurrent(ctx cosmos.Context, msg MsgSetIPAddres
 func (h IPAddressHandler) handle(ctx cosmos.Context, msg MsgSetIPAddress) error {
 	ctx.Logger().Info("handleMsgSetIPAddress request", "ip address", msg.IPAddress)
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.57.0")) {
+		return h.handleV57(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.handleV1(ctx, msg)
 	}
 	ctx.Logger().Error(errInvalidVersion.Error())
 	return errBadVersion
 }
 
-func (h IPAddressHandler) handleV1(ctx cosmos.Context, msg MsgSetIPAddress) error {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h IPAddressHandler) handleCurrent(ctx cosmos.Context, msg MsgSetIPAddress) error {
+func (h IPAddressHandler) handleV57(ctx cosmos.Context, msg MsgSetIPAddress) error {
 	nodeAccount, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.Signer)
 	if err != nil {
 		ctx.Logger().Error("fail to get node account", "error", err, "address", msg.Signer.String())
@@ -117,7 +115,7 @@ func (h IPAddressHandler) handleCurrent(ctx cosmos.Context, msg MsgSetIPAddress)
 	// add cost to reserve
 	coin := common.NewCoin(common.RuneNative, cost)
 	if !cost.IsZero() {
-		if err := h.mgr.Keeper().SendFromAccountToModule(ctx, msg.Signer, ReserveName, common.NewCoins(coin)); err != nil {
+		if err := h.mgr.Keeper().SendFromModuleToModule(ctx, BondName, ReserveName, common.NewCoins(coin)); err != nil {
 			ctx.Logger().Error("fail to transfer funds from bond to reserve", "error", err)
 			return err
 		}

@@ -22,6 +22,11 @@ const (
 	NodeStandby = types.NodeStatus_Standby
 	NodeUnknown = types.NodeStatus_Unknown
 
+	// Node type
+	NodeTypeUnknown   = types.NodeType_TypeUnknown
+	NodeTypeValidator = types.NodeType_TypeValidator
+	NodeTypeVault     = types.NodeType_TypeVault
+
 	// Bond type
 	AsgardKeygen = types.KeygenType_AsgardKeygen
 )
@@ -43,12 +48,15 @@ var (
 	NewNodeAccount             = types.NewNodeAccount
 	NewVault                   = types.NewVault
 	NewReserveContributor      = types.NewReserveContributor
+	NewTHORName                = types.NewTHORName
 	GetRandomTx                = types.GetRandomTx
-	GetRandomNodeAccount       = types.GetRandomNodeAccount
+	GetRandomValidatorNode     = types.GetRandomValidatorNode
+	GetRandomVaultNode         = types.GetRandomVaultNode
 	GetRandomBNBAddress        = types.GetRandomBNBAddress
 	GetRandomBTCAddress        = types.GetRandomBTCAddress
 	GetRandomBCHAddress        = types.GetRandomBCHAddress
 	GetRandomRUNEAddress       = types.GetRandomRUNEAddress
+	GetRandomTHORAddress       = types.GetRandomTHORAddress
 	GetRandomTxHash            = types.GetRandomTxHash
 	GetRandomBech32Addr        = types.GetRandomBech32Addr
 	GetRandomPubKey            = types.GetRandomPubKey
@@ -81,6 +89,7 @@ type (
 	NodeAccount              = types.NodeAccount
 	NodeAccounts             = types.NodeAccounts
 	NodeStatus               = types.NodeStatus
+	NodeType                 = types.NodeType
 	Network                  = types.Network
 	VaultStatus              = types.VaultStatus
 	NetworkFee               = types.NetworkFee
@@ -89,6 +98,9 @@ type (
 	TssKeygenMetric          = types.TssKeygenMetric
 	TssKeysignMetric         = types.TssKeysignMetric
 	ChainContract            = types.ChainContract
+	THORName                 = types.THORName
+	THORNameAlias            = types.THORNameAlias
+	SolvencyVoter            = types.SolvencyVoter
 
 	ProtoInt64        = types.ProtoInt64
 	ProtoUint64       = types.ProtoUint64

@@ -1,6 +1,7 @@
 package litecoin
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,8 +18,12 @@ import (
 	"github.com/ltcsuite/ltcutil"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	txscript "gitlab.com/thorchain/bifrost/ltcd-txscript"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
 	tssp "gitlab.com/thorchain/tss/go-tss/tss"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 
 	"gitlab.com/thorchain/thornode/bifrost/blockscanner"
 	btypes "gitlab.com/thorchain/thornode/bifrost/blockscanner/types"
@@ -41,6 +46,7 @@ const (
 	EstimateAverageTxSize = 250
 	DefaultCoinbaseValue  = 12.5
 	gasCacheBlocks        = 10
+	MaxMempoolScanPerTry  = 500
 )
 
 // Client observes litecoin chain and allows to sign and broadcast tx
@@ -55,8 +61,8 @@ type Client struct {
 	ksWrapper             *KeySignWrapper
 	bridge                *thorclient.ThorchainBridge
 	globalErrataQueue     chan<- types.ErrataBlock
+	globalSolvencyQueue   chan<- types.Solvency
 	nodePubKey            common.PubKey
-	lastMemPoolScan       time.Time
 	currentBlockHeight    int64
 	asgardAddresses       []common.Address
 	lastAsgard            time.Time
@@ -68,6 +74,7 @@ type Client struct {
 	signerLock            *sync.Mutex
 	vaultSignerLocks      map[string]*sync.Mutex
 	consolidateInProgress bool
+	signerCacheManager    *signercache.CacheManager
 }
 
 // NewClient generates a new Client
@@ -147,15 +154,21 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 	if err := c.registerAddressInWalletAsWatch(c.nodePubKey); err != nil {
 		return nil, fmt.Errorf("fail to register (%s): %w", c.nodePubKey, err)
 	}
+	signerCacheManager, err := signercache.NewSignerCacheManager(storage.GetInternalDb())
+	if err != nil {
+		return nil, fmt.Errorf("fail to create signer cache manager,err: %w", err)
+	}
+	c.signerCacheManager = signerCacheManager
 	c.updateNetworkInfo()
 	return c, nil
 }
 
 // Start starts the block scanner
-func (c *Client) Start(globalTxsQueue chan types.TxIn, globalErrataQueue chan types.ErrataBlock) {
+func (c *Client) Start(globalTxsQueue chan types.TxIn, globalErrataQueue chan types.ErrataBlock, globalSolvencyQueue chan types.Solvency) {
+	c.globalErrataQueue = globalErrataQueue
+	c.globalSolvencyQueue = globalSolvencyQueue
 	c.tssKeySigner.Start()
 	c.blockScanner.Start(globalTxsQueue)
-	c.globalErrataQueue = globalErrataQueue
 }
 
 // Stop stops the block scanner
@@ -221,9 +234,12 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 	}
 	total := 0.0
 	for _, item := range utxos {
+		if !c.isValidUTXO(item.ScriptPubKey) {
+			continue
+		}
 		if item.Confirmations == 0 {
 			// pending tx that is still  in mempool, only count yggdrasil send to itself or from asgard
-			if !c.isSelfTransaction(item.TxID) && !c.isFromActiveAsgard(item) {
+			if !c.isSelfTransaction(item.TxID) && !c.isAsgardAddress(item.Address) {
 				continue
 			}
 		}
@@ -244,7 +260,7 @@ func (c *Client) GetAccountByAddress(string) (common.Account, error) {
 }
 
 func (c *Client) getAsgardAddress() ([]common.Address, error) {
-	if time.Now().Sub(c.lastAsgard) < constants.ThorchainBlockTime && c.asgardAddresses != nil {
+	if time.Since(c.lastAsgard) < constants.ThorchainBlockTime && c.asgardAddresses != nil {
 		return c.asgardAddresses, nil
 	}
 	vaults, err := c.bridge.GetAsgards()
@@ -278,20 +294,18 @@ func (c *Client) getAsgardAddress() ([]common.Address, error) {
 	return c.asgardAddresses, nil
 }
 
-func (c *Client) isFromAsgard(txIn types.TxInItem) bool {
+func (c *Client) isAsgardAddress(addressToCheck string) bool {
 	asgards, err := c.getAsgardAddress()
 	if err != nil {
 		c.logger.Err(err).Msg("fail to get asgard addresses")
 		return false
 	}
-	isFromAsgard := false
 	for _, addr := range asgards {
-		if addr.String() == txIn.Sender {
-			isFromAsgard = true
-			break
+		if strings.EqualFold(addr.String(), addressToCheck) {
+			return true
 		}
 	}
-	return isFromAsgard
+	return false
 }
 
 // OnObservedTxIn gets called from observer when we have a valid observation
@@ -313,7 +327,7 @@ func (c *Client) OnObservedTxIn(txIn types.TxInItem, blockHeight int64) {
 	if _, err := c.blockMetaAccessor.TryAddToObservedTxCache(txIn.Tx); err != nil {
 		c.logger.Err(err).Msgf("fail to add hash (%s) to observed tx cache", txIn.Tx)
 	}
-	if c.isFromAsgard(txIn) {
+	if c.isAsgardAddress(txIn.Sender) {
 		c.logger.Debug().Msgf("add hash %s as self transaction,block height:%d", hash.String(), blockHeight)
 		blockMeta.AddSelfTransaction(hash.String())
 	} else {
@@ -322,6 +336,21 @@ func (c *Client) OnObservedTxIn(txIn types.TxInItem, blockHeight int64) {
 	}
 	if err := c.blockMetaAccessor.SaveBlockMeta(blockHeight, blockMeta); err != nil {
 		c.logger.Err(err).Msgf("fail to save block meta to storage,block height(%d)", blockHeight)
+	}
+	// update the signer cache
+	m, err := mem.ParseMemo(txIn.Memo)
+	if err != nil {
+		c.logger.Err(err).Msgf("fail to parse memo: %s", txIn.Memo)
+		return
+	}
+	if !m.IsOutbound() {
+		return
+	}
+	if m.GetTxID().IsEmpty() {
+		return
+	}
+	if err := c.signerCacheManager.SetSigned(txIn.CacheHash(c.GetChain(), m.GetTxID().String()), txIn.Tx); err != nil {
+		c.logger.Err(err).Msg("fail to update signer cache")
 	}
 }
 
@@ -461,27 +490,58 @@ func (c *Client) getMemPool(height int64) (types.TxIn, error) {
 		Chain:   c.GetChain(),
 		MemPool: true,
 	}
+	maxWorker := c.cfg.ParallelMempoolScan
+	if maxWorker == 0 {
+		// set default worker to 5
+		maxWorker = 5
+	}
+	sem := semaphore.NewWeighted(int64(maxWorker))
+	g, _ := errgroup.WithContext(context.Background())
+	total := 0
+	lock := &sync.Mutex{}
 	for _, h := range hashes {
 		// this hash had been processed before , ignore it
 		if !c.tryAddToMemPoolCache(h.String()) {
 			c.logger.Debug().Msgf("%s had been processed , ignore", h.String())
 			continue
 		}
-
-		c.logger.Debug().Msgf("process hash %s", h.String())
-		result, err := c.client.GetRawTransactionVerbose(h)
-		if err != nil {
-			return types.TxIn{}, fmt.Errorf("fail to get raw transaction verbose with hash(%s): %w", h.String(), err)
+		// closure
+		txHash := h
+		g.Go(func() error {
+			ctx := context.TODO()
+			if err := sem.Acquire(ctx, 1); err != nil {
+				return fmt.Errorf("fail to acquire semaphore: %w", err)
+			}
+			defer sem.Release(1)
+			c.logger.Debug().Msgf("process hash %s", txHash.String())
+			result, err := c.client.GetRawTransactionVerbose(txHash)
+			if err != nil {
+				// if the client fail to get the transaction , it could be the transaction removed , of the local node fail to
+				// respond with the transaction, it is safe to ignore it , and continue with the rest
+				c.logger.Err(err).Msgf("fail to get raw transaction verbose with hash(%s)", txHash.String())
+				return nil
+			}
+			txInItem, err := c.getTxIn(result, height, true)
+			if err != nil {
+				c.logger.Error().Err(err).Msg("fail to get TxInItem")
+				return nil
+			}
+			if txInItem.IsEmpty() {
+				return nil
+			}
+			lock.Lock()
+			defer lock.Unlock()
+			txIn.TxArray = append(txIn.TxArray, txInItem)
+			return nil
+		})
+		total++
+		// even it didn't finish scan all the mempool tx, but still yield here , so as block scanner can continue to scan a committed block
+		if total >= MaxMempoolScanPerTry {
+			break
 		}
-		txInItem, err := c.getTxIn(result, height)
-		if err != nil {
-			c.logger.Error().Err(err).Msg("fail to get TxInItem")
-			continue
-		}
-		if txInItem.IsEmpty() {
-			continue
-		}
-		txIn.TxArray = append(txIn.TxArray, txInItem)
+	}
+	if err := g.Wait(); err != nil {
+		c.logger.Err(err).Msgf("fail to scan mempool")
 	}
 	txIn.Count = strconv.Itoa(len(txIn.TxArray))
 	return txIn, nil
@@ -489,12 +549,6 @@ func (c *Client) getMemPool(height int64) (types.TxIn, error) {
 
 // FetchMemPool retrieves txs from mempool
 func (c *Client) FetchMemPool(height int64) (types.TxIn, error) {
-	// make sure client doesn't scan mempool too much
-	diff := time.Now().Sub(c.lastMemPoolScan)
-	if diff < constants.ThorchainBlockTime {
-		return types.TxIn{}, nil
-	}
-	c.lastMemPoolScan = time.Now()
 	return c.getMemPool(height)
 }
 
@@ -564,6 +618,13 @@ func (c *Client) FetchTxs(height int64) (types.TxIn, error) {
 	c.updateNetworkInfo()
 	if err := c.sendNetworkFee(height); err != nil {
 		c.logger.Err(err).Msg("fail to send network fee")
+	}
+
+	// LTC has faster block time, report every 5 blocks seems fine
+	if height%5 == 0 {
+		if err := c.reportSolvency(height); err != nil {
+			c.logger.Err(err).Msg("fail to report solvency to THORChain")
+		}
 	}
 	txIn.Count = strconv.Itoa(len(txIn.TxArray))
 	if !c.consolidateInProgress {
@@ -649,12 +710,43 @@ func (c *Client) getBlock(height int64) (*btcjson.GetBlockVerboseTxResult, error
 	return c.client.GetBlockVerboseTx(hash)
 }
 
-func (c *Client) getTxIn(tx *btcjson.TxRawResult, height int64) (types.TxInItem, error) {
+func (c *Client) isValidUTXO(hexPubKey string) bool {
+	buf, err := hex.DecodeString(hexPubKey)
+	if err != nil {
+		c.logger.Err(err).Msgf("fail to decode hex string,%s", hexPubKey)
+		return false
+	}
+	scriptType, addresses, requireSigs, err := txscript.ExtractPkScriptAddrs(buf, c.getChainCfg())
+	if err != nil {
+		c.logger.Err(err).Msg("fail to extract pub key script")
+		return false
+	}
+	switch scriptType {
+	case txscript.MultiSigTy:
+		return false
+
+	default:
+		return len(addresses) == 1 && requireSigs == 1
+	}
+}
+func (c *Client) isRBFEnabled(tx *btcjson.TxRawResult) bool {
+	for _, vin := range tx.Vin {
+		if vin.Sequence < (0xffffffff - 1) {
+			return true
+		}
+	}
+	return false
+}
+func (c *Client) getTxIn(tx *btcjson.TxRawResult, height int64, isMemPool bool) (types.TxInItem, error) {
 	if c.ignoreTx(tx) {
-		c.logger.Debug().Msgf("ignore (%s) , not correct format", tx.Hash)
+		c.logger.Debug().Int64("height", height).Str("tx", tx.Hash).Msg("ignore tx not matching format")
 		return types.TxInItem{}, nil
 	}
-
+	// RBF enabled transaction will not be observed until it get committed to block
+	if c.isRBFEnabled(tx) && isMemPool {
+		c.logger.Info().Msgf("RBF is enabled, ignore tx: %s,confirmation: %d", tx.Hash, tx.Confirmations)
+		return types.TxInItem{}, nil
+	}
 	sender, err := c.getSender(tx)
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("fail to get sender from tx: %w", err)
@@ -666,9 +758,24 @@ func (c *Client) getTxIn(tx *btcjson.TxRawResult, height int64) (types.TxInItem,
 	if len([]byte(memo)) > constants.MaxMemoSize {
 		return types.TxInItem{}, fmt.Errorf("memo (%s) longer than max allow length(%d)", memo, constants.MaxMemoSize)
 	}
-	output, err := c.getOutput(sender, tx, strings.EqualFold(memo, mem.NewConsolidateMemo().String()))
+	m, err := mem.ParseMemo(memo)
 	if err != nil {
+		c.logger.Debug().Msgf("fail to parse memo: %s,err : %s", memo, err)
+	}
+	output, err := c.getOutput(sender, tx, m.IsType(mem.TxConsolidate))
+	if err != nil {
+		if errors.Is(err, btypes.FailOutputMatchCriteria) {
+			c.logger.Debug().Int64("height", height).Str("tx", tx.Hash).Msg("ignore tx not matching format")
+			return types.TxInItem{}, nil
+		}
 		return types.TxInItem{}, fmt.Errorf("fail to get output from tx: %w", err)
+	}
+	toAddr := output.ScriptPubKey.Addresses[0]
+	if c.isAsgardAddress(toAddr) {
+		// Only inbound UTXO need to validate against multi-sig
+		if !c.isValidUTXO(output.ScriptPubKey.Hex) {
+			return types.TxInItem{}, fmt.Errorf("invalid utxo")
+		}
 	}
 	amount, err := ltcutil.NewAmount(output.Value)
 	if err != nil {
@@ -684,7 +791,7 @@ func (c *Client) getTxIn(tx *btcjson.TxRawResult, height int64) (types.TxInItem,
 		BlockHeight: height,
 		Tx:          tx.Txid,
 		Sender:      sender,
-		To:          output.ScriptPubKey.Addresses[0],
+		To:          toAddr,
 		Coins: common.Coins{
 			common.NewCoin(common.LTCAsset, cosmos.NewUint(amt)),
 		},
@@ -700,10 +807,10 @@ func (c *Client) extractTxs(block *btcjson.GetBlockVerboseTxResult) (types.TxIn,
 		MemPool: false,
 	}
 	var txItems []types.TxInItem
-	for _, tx := range block.Tx {
+	for idx, tx := range block.Tx {
 		// mempool transaction get committed to block , thus remove it from mempool cache
 		c.removeFromMemPoolCache(tx.Hash)
-		txInItem, err := c.getTxIn(&tx, block.Height)
+		txInItem, err := c.getTxIn(&block.Tx[idx], block.Height, false)
 		if err != nil {
 			c.logger.Err(err).Msg("fail to get TxInItem")
 			continue
@@ -755,6 +862,9 @@ func (c *Client) ignoreTx(tx *btcjson.TxRawResult) bool {
 	if tx.Vin[0].Txid == "" {
 		return true
 	}
+	if tx.LockTime > 0 {
+		return true
+	}
 
 	countWithOutput := 0
 	for idx, vout := range tx.Vout {
@@ -803,7 +913,7 @@ func (c *Client) getOutput(sender string, tx *btcjson.TxRawResult, consolidate b
 			}
 		}
 	}
-	return btcjson.Vout{}, fmt.Errorf("fail to get output matching criteria")
+	return btcjson.Vout{}, btypes.FailOutputMatchCriteria
 }
 
 // getSender returns sender address for a ltc tx, using vin:0
@@ -828,20 +938,33 @@ func (c *Client) getSender(tx *btcjson.TxRawResult) (string, error) {
 
 // getMemo returns memo for a ltc tx, using vout OP_RETURN
 func (c *Client) getMemo(tx *btcjson.TxRawResult) (string, error) {
-	var opreturns string
-	for _, vout := range tx.Vout {
-		if strings.EqualFold(vout.ScriptPubKey.Type, "nulldata") {
-			opreturn := strings.Fields(vout.ScriptPubKey.Asm)
-			if len(opreturn) == 2 {
-				opreturns += opreturn[1]
+	var opReturns string
+	for _, vOut := range tx.Vout {
+		if !strings.EqualFold(vOut.ScriptPubKey.Type, "nulldata") {
+			continue
+		}
+		buf, err := hex.DecodeString(vOut.ScriptPubKey.Hex)
+		if err != nil {
+			c.logger.Err(err).Msg("fail to hex decode scriptPubKey")
+			continue
+		}
+		asm, err := txscript.DisasmString(buf)
+		if err != nil {
+			c.logger.Err(err).Msg("fail to disasm script pubkey")
+			continue
+		}
+		opReturnFields := strings.Fields(asm)
+		if len(opReturnFields) == 2 {
+			decoded, err := hex.DecodeString(opReturnFields[1])
+			if err != nil {
+				c.logger.Err(err).Msgf("fail to decode OP_RETURN string: %s", opReturnFields[1])
+				continue
 			}
+			opReturns += string(decoded)
 		}
 	}
-	decoded, err := hex.DecodeString(opreturns)
-	if err != nil {
-		return "", fmt.Errorf("fail to decode OP_RETURN string: %s", opreturns)
-	}
-	return string(decoded), nil
+
+	return opReturns, nil
 }
 
 // getGas returns gas for a ltc tx (sum vin - sum vout)
@@ -990,16 +1113,27 @@ func (c *Client) getVaultSignerLock(vaultPubKey string) *sync.Mutex {
 	return l
 }
 
-func (c *Client) isFromActiveAsgard(result btcjson.ListUnspentResult) bool {
-	addresses, err := c.getAsgardAddress()
+func (c *Client) reportSolvency(ltcBlockHeight int64) error {
+	asgardVaults, err := c.bridge.GetAsgards()
 	if err != nil {
-		c.logger.Err(err).Msgf("fail to get asgard addresses")
-		return false
+		return fmt.Errorf("fail to get asgards,err: %w", err)
 	}
-	for _, addr := range addresses {
-		if strings.EqualFold(addr.String(), result.Address) {
-			return true
+	for _, asgard := range asgardVaults {
+		acct, err := c.GetAccount(asgard.PubKey)
+		if err != nil {
+			c.logger.Err(err).Msgf("fail to get account balance")
+			continue
+		}
+		select {
+		case c.globalSolvencyQueue <- types.Solvency{
+			Height: ltcBlockHeight,
+			Chain:  common.LTCChain,
+			PubKey: asgard.PubKey,
+			Coins:  acct.Coins,
+		}:
+		case <-time.After(constants.ThorchainBlockTime):
+			c.logger.Info().Msgf("fail to send solvency info to THORChain, timeout")
 		}
 	}
-	return false
+	return nil
 }

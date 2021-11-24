@@ -41,6 +41,11 @@ const (
 	NodeStandby     = types.NodeStatus_Standby
 	NodeUnknown     = types.NodeStatus_Unknown
 
+	// Node type
+	NodeTypeUnknown   = types.NodeType_TypeUnknown
+	NodeTypeValidator = types.NodeType_TypeValidator
+	NodeTypeVault     = types.NodeType_TypeVault
+
 	// Bond type
 	BondPaid     = types.BondType_bond_paid
 	BondReturned = types.BondType_bond_returned
@@ -62,8 +67,10 @@ const (
 	TxRagnarok        = mem.TxRagnarok
 	TxReserve         = mem.TxReserve
 	TxOutbound        = mem.TxOutbound
+	TxRefund          = mem.TxRefund
 	TxUnBond          = mem.TxUnbond
 	TxLeave           = mem.TxLeave
+	TxWithdraw        = mem.TxWithdraw
 )
 
 var (
@@ -75,6 +82,7 @@ var (
 	NewErrataTxVoter               = types.NewErrataTxVoter
 	NewObservedTxVoter             = types.NewObservedTxVoter
 	NewMsgMimir                    = types.NewMsgMimir
+	NewMsgNodePauseChain           = types.NewMsgNodePauseChain
 	NewMsgDeposit                  = types.NewMsgDeposit
 	NewMsgTssPool                  = types.NewMsgTssPool
 	NewMsgTssKeysignFail           = types.NewMsgTssKeysignFail
@@ -89,6 +97,7 @@ var (
 	NewKeygen                      = types.NewKeygen
 	NewKeygenBlock                 = types.NewKeygenBlock
 	NewMsgSetNodeKeys              = types.NewMsgSetNodeKeys
+	NewMsgManageTHORName           = types.NewMsgManageTHORName
 	NewTxOut                       = types.NewTxOut
 	NewEventRewards                = types.NewEventRewards
 	NewEventPool                   = types.NewEventPool
@@ -111,13 +120,14 @@ var (
 	NewEventTssKeysignMetric       = types.NewEventTssKeysignMetric
 	NewEventPoolBalanceChanged     = types.NewEventPoolBalanceChanged
 	NewEventPendingLiquidity       = types.NewEventPendingLiquidity
+	NewEventTHORName               = types.NewEventTHORName
 	NewPoolMod                     = types.NewPoolMod
 	NewMsgRefundTx                 = types.NewMsgRefundTx
 	NewMsgOutboundTx               = types.NewMsgOutboundTx
 	NewMsgMigrate                  = types.NewMsgMigrate
 	NewMsgRagnarok                 = types.NewMsgRagnarok
 	NewQueryNodeAccount            = types.NewQueryNodeAccount
-	GetThreshold                   = types.GetThreshold
+	NewQueryTxOutItem              = types.NewQueryTxOutItem
 	ModuleCdc                      = types.ModuleCdc
 	RegisterCodec                  = types.RegisterCodec
 	RegisterInterfaces             = types.RegisterInterfaces
@@ -137,18 +147,18 @@ var (
 	NewMsgSetCryptonoteData        = types.NewMsgSetCryptonoteData
 	NewMsgNetworkFee               = types.NewMsgNetworkFee
 	NewNetworkFee                  = types.NewNetworkFee
+	NewTHORName                    = types.NewTHORName
 	GetPoolStatus                  = types.GetPoolStatus
 	GetRandomVault                 = types.GetRandomVault
 	GetRandomTx                    = types.GetRandomTx
 	GetRandomObservedTx            = types.GetRandomObservedTx
-	GetRandomNodeAccount           = types.GetRandomNodeAccount
+	GetRandomValidatorNode         = types.GetRandomValidatorNode
+	GetRandomVaultNode             = types.GetRandomVaultNode
 	GetRandomTHORAddress           = types.GetRandomTHORAddress
 	GetRandomRUNEAddress           = types.GetRandomRUNEAddress
 	GetRandomBNBAddress            = types.GetRandomBNBAddress
 	GetRandomBTCAddress            = types.GetRandomBTCAddress
 	GetRandomLTCAddress            = types.GetRandomLTCAddress
-	GetRandomBCHAddress            = types.GetRandomBCHAddress
-	GetRandomDOGEAddress           = types.GetRandomDOGEAddress
 	GetRandomTxHash                = types.GetRandomTxHash
 	GetRandomBech32Addr            = types.GetRandomBech32Addr
 	GetRandomBech32ConsensusPubKey = types.GetRandomBech32ConsensusPubKey
@@ -158,17 +168,20 @@ var (
 	SetupConfigForTest             = types.SetupConfigForTest
 	HasSimpleMajority              = types.HasSimpleMajority
 	HasSuperMajority               = types.HasSuperMajority
-	NewTssKeysignMetric            = types.NewTssKeysignMetric
 	DefaultGenesis                 = types.DefaultGenesis
+	NewSolvencyVoter               = types.NewSolvencyVoter
+	NewMsgSolvency                 = types.NewMsgSolvency
 
 	// Memo
-	ParseMemo          = mem.ParseMemo
-	NewRefundMemo      = mem.NewRefundMemo
-	NewOutboundMemo    = mem.NewOutboundMemo
-	NewRagnarokMemo    = mem.NewRagnarokMemo
-	NewYggdrasilReturn = mem.NewYggdrasilReturn
-	NewYggdrasilFund   = mem.NewYggdrasilFund
-	NewMigrateMemo     = mem.NewMigrateMemo
+	ParseMemo              = mem.ParseMemo
+	ParseMemoWithTHORNames = mem.ParseMemoWithTHORNames
+	FetchAddress           = mem.FetchAddress
+	NewRefundMemo          = mem.NewRefundMemo
+	NewOutboundMemo        = mem.NewOutboundMemo
+	NewRagnarokMemo        = mem.NewRagnarokMemo
+	NewYggdrasilReturn     = mem.NewYggdrasilReturn
+	NewYggdrasilFund       = mem.NewYggdrasilFund
+	NewMigrateMemo         = mem.NewMigrateMemo
 )
 
 type (
@@ -184,6 +197,7 @@ type (
 	MsgAddLiquidity                = types.MsgAddLiquidity
 	MsgOutboundTx                  = types.MsgOutboundTx
 	MsgMimir                       = types.MsgMimir
+	MsgNodePauseChain              = types.MsgNodePauseChain
 	MsgMigrate                     = types.MsgMigrate
 	MsgRagnarok                    = types.MsgRagnarok
 	MsgRefundTx                    = types.MsgRefundTx
@@ -202,6 +216,8 @@ type (
 	MsgTssPool                     = types.MsgTssPool
 	MsgTssKeysignFail              = types.MsgTssKeysignFail
 	MsgNetworkFee                  = types.MsgNetworkFee
+	MsgManageTHORName              = types.MsgManageTHORName
+	MsgSolvency                    = types.MsgSolvency
 	QueryVersion                   = types.QueryVersion
 	QueryQueue                     = types.QueryQueue
 	QueryNodeAccountPreflightCheck = types.QueryNodeAccountPreflightCheck
@@ -212,6 +228,7 @@ type (
 	QueryVaultsPubKeys             = types.QueryVaultsPubKeys
 	QueryVaultPubKeyContract       = types.QueryVaultPubKeyContract
 	QueryNodeAccount               = types.QueryNodeAccount
+	QueryTxOutItem                 = types.QueryTxOutItem
 	QueryChainAddress              = types.QueryChainAddress
 	PoolStatus                     = types.PoolStatus
 	Pool                           = types.Pool
@@ -264,6 +281,8 @@ type (
 	ChainContract                  = types.ChainContract
 	Blame                          = types.Blame
 	Node                           = types.Node
+	THORName                       = types.THORName
+	THORNameAlias                  = types.THORNameAlias
 
 	// Memo
 	SwapMemo              = mem.SwapMemo
@@ -283,6 +302,7 @@ type (
 	SwitchMemo            = mem.SwitchMemo
 	NoOpMemo              = mem.NoOpMemo
 	ConsolidateMemo       = mem.ConsolidateMemo
+	ManageTHORNameMemo    = mem.ManageTHORNameMemo
 )
 
 var _ codec.ProtoMarshaler = &types.LiquidityProvider{}

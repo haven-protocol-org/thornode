@@ -18,6 +18,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	flag "github.com/spf13/pflag"
+
+	"gitlab.com/thorchain/tss/go-tss/common"
+	"gitlab.com/thorchain/tss/go-tss/tss"
+
 	"gitlab.com/thorchain/thornode/app"
 	"gitlab.com/thorchain/thornode/bifrost/config"
 	"gitlab.com/thorchain/thornode/bifrost/metrics"
@@ -115,6 +119,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to get private key")
 	}
+
 	bootstrapPeers, err := cfg.TSS.GetBootstrapPeers()
 	if err != nil {
 		log.Fatal().Err(err).Msg("fail to get bootstrap peers")
@@ -128,9 +133,9 @@ func main() {
 		app.DefaultNodeHome(""),
 		common.TssConfig{
 			EnableMonitor:   true,
-			KeyGenTimeout:   240 * time.Second, // must be shorter than cosntants.JailTimeKeygen
-			KeySignTimeout:  35 * time.Second,  // must be shorter than constants.JailTimeKeysign
-			PartyTimeout:    30 * time.Second,
+			KeyGenTimeout:   300 * time.Second, // must be shorter than constants.JailTimeKeygen
+			KeySignTimeout:  60 * time.Second,  // must be shorter than constants.JailTimeKeysign
+			PartyTimeout:    45 * time.Second,
 			PreParamTimeout: 5 * time.Minute,
 		},
 		getLocalPreParam(*tssPreParam),
@@ -229,6 +234,15 @@ func main() {
 		log.Fatal().Err(err).Msg("fail to start signer")
 	}
 
+	// start observer
+	obs, err := observer.NewObserver(pubkeyMgr, chains, thorchainBridge, m, cfg.Chains[0].BlockScanner.DBPath, tssKeysignMetricMgr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("fail to create observer")
+	}
+	if err = obs.Start(); err != nil {
+		log.Fatal().Err(err).Msg("fail to start observer")
+	}
+
 	// wait....
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -293,6 +307,7 @@ func getLocalPreParam(file string) *btsskeygen.LocalPreParams {
 	if len(file) == 0 {
 		return nil
 	}
+	// #nosec G304 this is to read a file provided by a start up parameter , it will not be any random user input
 	buf, err := ioutil.ReadFile(file)
 	if err != nil {
 		log.Fatal().Msgf("fail to read file:%s", file)

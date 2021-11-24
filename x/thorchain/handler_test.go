@@ -181,7 +181,7 @@ type handlerTestWrapper struct {
 func getHandlerTestWrapper(c *C, height int64, withActiveNode, withActieBNBPool bool) handlerTestWrapper {
 	ctx, mgr := setupManagerForTest(c)
 	ctx = ctx.WithBlockHeight(height)
-	acc1 := GetRandomNodeAccount(NodeActive)
+	acc1 := GetRandomValidatorNode(NodeActive)
 	acc1.Version = mgr.GetVersion().String()
 	if withActiveNode {
 		c.Assert(mgr.Keeper().SetNodeAccount(ctx, acc1), IsNil)
@@ -207,7 +207,7 @@ func getHandlerTestWrapper(c *C, height int64, withActiveNode, withActieBNBPool 
 		keeper:               mgr.Keeper(),
 		mgr:                  mgr,
 		activeNodeAccount:    acc1,
-		notActiveNodeAccount: GetRandomNodeAccount(NodeDisabled),
+		notActiveNodeAccount: GetRandomValidatorNode(NodeDisabled),
 	}
 }
 
@@ -216,7 +216,17 @@ func (HandlerSuite) TestIsSignedByActiveNodeAccounts(c *C) {
 	nodeAddr := GetRandomBech32Addr()
 	c.Check(isSignedByActiveNodeAccounts(ctx, mgr, []cosmos.AccAddress{}), Equals, false)
 	c.Check(isSignedByActiveNodeAccounts(ctx, mgr, []cosmos.AccAddress{nodeAddr}), Equals, false)
-	nodeAccount1 := GetRandomNodeAccount(NodeWhiteListed)
+	nodeAccount1 := GetRandomValidatorNode(NodeWhiteListed)
+	c.Assert(mgr.Keeper().SetNodeAccount(ctx, nodeAccount1), IsNil)
+	c.Check(isSignedByActiveNodeAccounts(ctx, mgr, []cosmos.AccAddress{nodeAccount1.NodeAddress}), Equals, false)
+
+	// Update node to be active, check should succeed
+	nodeAccount1.Status = NodeActive
+	c.Assert(mgr.Keeper().SetNodeAccount(ctx, nodeAccount1), IsNil)
+	c.Check(isSignedByActiveNodeAccounts(ctx, mgr, []cosmos.AccAddress{nodeAccount1.NodeAddress}), Equals, true)
+
+	// Update node to be a vault node, check should fail
+	nodeAccount1.Type = NodeTypeVault
 	c.Assert(mgr.Keeper().SetNodeAccount(ctx, nodeAccount1), IsNil)
 	c.Check(isSignedByActiveNodeAccounts(ctx, mgr, []cosmos.AccAddress{nodeAccount1.NodeAddress}), Equals, false)
 }
@@ -386,7 +396,7 @@ func (HandlerSuite) TestGetMsgWithdrawFromMemo(c *C) {
 		tx.FromAddress = GetRandomTHORAddress()
 	}
 	obTx := NewObservedTx(tx, w.ctx.BlockHeight(), GetRandomPubKey(), w.ctx.BlockHeight())
-	msg, err := processOneTxIn(w.ctx, w.keeper, obTx, w.activeNodeAccount.NodeAddress)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, obTx, w.activeNodeAccount.NodeAddress)
 	c.Assert(err, IsNil)
 	c.Assert(msg, NotNil)
 	c.Assert(msg.Type(), Equals, MsgWithdrawLiquidity{}.Type())
@@ -397,7 +407,7 @@ func (HandlerSuite) TestGetMsgMigrationFromMemo(c *C) {
 	tx := GetRandomTx()
 	tx.Memo = "migrate:10"
 	obTx := NewObservedTx(tx, w.ctx.BlockHeight(), GetRandomPubKey(), w.ctx.BlockHeight())
-	msg, err := processOneTxIn(w.ctx, w.keeper, obTx, w.activeNodeAccount.NodeAddress)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, obTx, w.activeNodeAccount.NodeAddress)
 	c.Assert(err, IsNil)
 	c.Assert(msg, NotNil)
 	c.Assert(msg.Type(), Equals, MsgMigrate{}.Type())
@@ -411,7 +421,7 @@ func (HandlerSuite) TestGetMsgBondFromMemo(c *C) {
 	}
 	tx.Memo = "bond:" + GetRandomBech32Addr().String()
 	obTx := NewObservedTx(tx, w.ctx.BlockHeight(), GetRandomPubKey(), w.ctx.BlockHeight())
-	msg, err := processOneTxIn(w.ctx, w.keeper, obTx, w.activeNodeAccount.NodeAddress)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, obTx, w.activeNodeAccount.NodeAddress)
 	c.Assert(err, IsNil)
 	c.Assert(msg, NotNil)
 	c.Assert(msg.Type(), Equals, MsgBond{}.Type())
@@ -425,7 +435,7 @@ func (HandlerSuite) TestGetMsgUnBondFromMemo(c *C) {
 	}
 	tx.Memo = "unbond:" + GetRandomTHORAddress().String() + ":1000"
 	obTx := NewObservedTx(tx, w.ctx.BlockHeight(), GetRandomPubKey(), w.ctx.BlockHeight())
-	msg, err := processOneTxIn(w.ctx, w.keeper, obTx, w.activeNodeAccount.NodeAddress)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, obTx, w.activeNodeAccount.NodeAddress)
 	c.Assert(err, IsNil)
 	c.Assert(msg, NotNil)
 	c.Assert(msg.Type(), Equals, MsgUnBond{}.Type())
@@ -527,7 +537,7 @@ func (HandlerSuite) TestMsgLeaveFromMemo(c *C) {
 		common.EmptyPubKey, 1024,
 	)
 
-	msg, err := processOneTxIn(w.ctx, w.keeper, txin, addr)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, txin, addr)
 	c.Assert(err, IsNil)
 	c.Check(msg.ValidateBasic(), IsNil)
 }
@@ -549,12 +559,12 @@ func (HandlerSuite) TestYggdrasilMemo(c *C) {
 		GetRandomPubKey(), 1024,
 	)
 
-	msg, err := processOneTxIn(w.ctx, w.keeper, txin, addr)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, txin, addr)
 	c.Assert(err, IsNil)
 	c.Check(msg.ValidateBasic(), IsNil)
 
 	txin.Tx.Memo = "yggdrasil-:1024"
-	msg, err = processOneTxIn(w.ctx, w.keeper, txin, addr)
+	msg, err = processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, txin, addr)
 	c.Assert(err, IsNil)
 	c.Check(msg.ValidateBasic(), IsNil)
 }
@@ -576,7 +586,7 @@ func (s *HandlerSuite) TestReserveContributor(c *C) {
 		GetRandomPubKey(), 1024,
 	)
 
-	msg, err := processOneTxIn(w.ctx, w.keeper, txin, addr)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, txin, addr)
 	c.Assert(err, IsNil)
 	c.Check(msg.ValidateBasic(), IsNil)
 	c.Check(msg.Type(), Equals, MsgReserveContributor{}.Type())
@@ -599,7 +609,7 @@ func (s *HandlerSuite) TestSwitch(c *C) {
 		GetRandomPubKey(), 1024,
 	)
 
-	msg, err := processOneTxIn(w.ctx, w.keeper, txin, addr)
+	msg, err := processOneTxIn(w.ctx, GetCurrentVersion(), w.keeper, txin, addr)
 	c.Assert(err, IsNil)
 	c.Check(msg.ValidateBasic(), IsNil)
 	c.Check(msg.Type(), Equals, MsgSwitch{}.Type())
@@ -614,9 +624,9 @@ func (s *HandlerSuite) TestExternalHandler(c *C) {
 	c.Check(err, NotNil)
 	c.Check(errors.Is(err, se.ErrUnauthorized), Equals, true)
 	c.Check(result, IsNil)
-	na := GetRandomNodeAccount(NodeActive)
+	na := GetRandomValidatorNode(NodeActive)
 	mgr.Keeper().SetNodeAccount(ctx, na)
-	FundAccount(c, ctx, mgr.Keeper(), na.NodeAddress, 10*common.One)
+	FundModule(c, ctx, mgr.Keeper(), BondName, 10*common.One)
 	result, err = handler(ctx, NewMsgSetVersion("0.1.0", na.NodeAddress))
 	c.Assert(err, IsNil)
 	c.Assert(result, NotNil)
@@ -673,4 +683,25 @@ func (s *HandlerSuite) TestFuzzyMatching(c *C) {
 	check, _ = common.NewAsset("ETH.USDT-1EC7")
 	result = fuzzyAssetMatch(ctx, k, check)
 	c.Check(result.Equals(p2.Asset), Equals, true)
+}
+
+func (s *HandlerSuite) TestMemoFetchAddress(c *C) {
+	ctx, k := setupKeeperForTest(c)
+
+	thorAddr := GetRandomTHORAddress()
+	name := NewTHORName("hello", 50, []THORNameAlias{THORNameAlias{Chain: common.THORChain, Address: thorAddr}})
+	k.SetTHORName(ctx, name)
+
+	bnbAddr := GetRandomBNBAddress()
+	addr, err := FetchAddress(ctx, k, bnbAddr.String(), common.BNBChain)
+	c.Assert(err, IsNil)
+	c.Check(addr.Equals(bnbAddr), Equals, true)
+
+	addr, err = FetchAddress(ctx, k, "hello", common.THORChain)
+	c.Assert(err, IsNil)
+	c.Check(addr.Equals(thorAddr), Equals, true)
+
+	addr, err = FetchAddress(ctx, k, "hello.thor", common.THORChain)
+	c.Assert(err, IsNil)
+	c.Check(addr.Equals(thorAddr), Equals, true)
 }

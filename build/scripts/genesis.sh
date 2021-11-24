@@ -10,6 +10,7 @@ SIGNER_PASSWD="${SIGNER_PASSWD:=password}"
 NODES="${NODES:=1}"
 SEED="${SEED:=thornode}" # the hostname of the master node
 ETH_HOST="${ETH_HOST:=http://ethereum-localnet:8545}"
+THOR_BLOCK_TIME="${THOR_BLOCK_TIME:=5s}"
 
 # this is required as it need to run thornode init , otherwise tendermint related commant doesn't work
 if [ "$SEED" = "$(hostname)" ]; then
@@ -83,10 +84,12 @@ if [ "$SEED" = "$(hostname)" ]; then
       add_account tthor1z63f3mzwv3g75az80xwmhrawdqcjpaekk0kd54 rune 5000000000000
       add_account tthor1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6zdp257 rune 25000000000100
       add_account tthor1xwusttz86hqfuk5z7amcgqsg7vp6g8zhsp5lu2 rune 5090000000000
-      add_account $NODE_ADDRESS rune 10000000000000000
       reserve 22000000000000000
       # deploy eth contract
       deploy_eth_contract $ETH_HOST
+
+      # override block time for faster smoke tests
+      block_time "$THOR_BLOCK_TIME"
     else
       echo "ETH Contract Address: $CONTRACT"
       set_eth_contract "$CONTRACT"
@@ -128,7 +131,5 @@ if [ "$SEED" != "$(hostname)" ]; then
     cat ~/.thornode/config/genesis.json
   fi
 fi
-
-. $(dirname "$0")/haven.sh $SIGNER_NAME $SIGNER_PASSWD &
 
 printf "%s\n%s\n" "$SIGNER_NAME" "$SIGNER_PASSWD" | exec "$@"

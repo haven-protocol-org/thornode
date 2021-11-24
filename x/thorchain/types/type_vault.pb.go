@@ -96,8 +96,7 @@ type Vault struct {
 	InboundTxCount        int64                                       `protobuf:"varint,9,opt,name=inbound_tx_count,json=inboundTxCount,proto3" json:"inbound_tx_count,omitempty"`
 	OutboundTxCount       int64                                       `protobuf:"varint,10,opt,name=outbound_tx_count,json=outboundTxCount,proto3" json:"outbound_tx_count,omitempty"`
 	PendingTxBlockHeights []int64                                     `protobuf:"varint,11,rep,packed,name=pending_tx_block_heights,json=pendingTxBlockHeights,proto3" json:"pending_tx_block_heights,omitempty"`
-	CryptonoteData        string
-	Routers               []ChainContract `protobuf:"bytes,22,rep,name=routers,proto3" json:"routers"`
+	Routers               []ChainContract                             `protobuf:"bytes,22,rep,name=routers,proto3" json:"routers"`
 }
 
 func (m *Vault) Reset()         { *m = Vault{} }

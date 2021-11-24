@@ -1,8 +1,6 @@
 package thorchain
 
 import (
-	"fmt"
-
 	"github.com/blang/semver"
 
 	"gitlab.com/thorchain/thornode/common"
@@ -42,10 +40,6 @@ func (h MigrateHandler) validate(ctx cosmos.Context, msg MsgMigrate) error {
 }
 
 func (h MigrateHandler) validateV1(ctx cosmos.Context, msg MsgMigrate) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h MigrateHandler) validateCurrent(ctx cosmos.Context, msg MsgMigrate) error {
 	if err := msg.ValidateBasic(); nil != err {
 		return err
 	}
@@ -67,10 +61,6 @@ func (h MigrateHandler) slashV1(ctx cosmos.Context, tx ObservedTx) error {
 }
 
 func (h MigrateHandler) handleV1(ctx cosmos.Context, msg MsgMigrate) (*cosmos.Result, error) {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h MigrateHandler) handleCurrent(ctx cosmos.Context, msg MsgMigrate) (*cosmos.Result, error) {
 	// update txOut record with our TxID that sent funds out of the pool
 	txOut, err := h.mgr.Keeper().GetTxOut(ctx, msg.BlockHeight)
 	if err != nil {
@@ -100,7 +90,7 @@ func (h MigrateHandler) handleCurrent(ctx cosmos.Context, msg MsgMigrate) (*cosm
 					maxGasAmt := tx.MaxGas.ToCoins().GetCoin(asset).Amount
 					realGasAmt := msg.Tx.Tx.Gas.ToCoins().GetCoin(asset).Amount
 					if maxGasAmt.GTE(realGasAmt) {
-						ctx.Logger().Info(fmt.Sprintf("intend to spend: %s, actual spend: %s are the same , override match coin", intendToSpend, actualSpend))
+						ctx.Logger().Info("override match coin", "intend to spend", intendToSpend, "actual spend", actualSpend)
 						matchCoin = true
 					}
 					// although here might detect there some some discrepancy between MaxGas , and actual gas

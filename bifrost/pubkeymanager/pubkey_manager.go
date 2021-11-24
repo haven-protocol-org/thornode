@@ -182,7 +182,7 @@ func (pkm *PubKeyManager) AddPubKey(pk common.PubKey, signer bool) {
 			PubKey:      pk,
 			Signer:      signer,
 			NodeAccount: false,
-			Contacts:    map[common.Chain]common.Address{},
+			Contracts:   map[common.Chain]common.Address{},
 		})
 		pkm.fireCallback(pk)
 	}
@@ -206,7 +206,7 @@ func (pkm *PubKeyManager) AddNodePubKey(pk common.PubKey) {
 			PubKey:      pk,
 			Signer:      true,
 			NodeAccount: true,
-			Contacts:    map[common.Chain]common.Address{},
+			Contracts:   map[common.Chain]common.Address{},
 		})
 		// a new pubkey get added , fire callback
 		pkm.fireCallback(pk)

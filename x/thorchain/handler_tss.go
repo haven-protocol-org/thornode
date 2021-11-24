@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/blang/semver"
-
 	"gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
@@ -43,19 +42,31 @@ func (h TssHandler) Run(ctx cosmos.Context, m cosmos.Msg) (*cosmos.Result, error
 
 func (h TssHandler) validate(ctx cosmos.Context, msg MsgTssPool) error {
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.71.0")) {
+		return h.validateV71(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.68.0")) {
+		return h.validateV68(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.validateV1(ctx, msg)
 	}
 	return errBadVersion
 }
 
-func (h TssHandler) validateV1(ctx cosmos.Context, msg MsgTssPool) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h TssHandler) validateCurrent(ctx cosmos.Context, msg MsgTssPool) error {
+func (h TssHandler) validateV71(ctx cosmos.Context, msg MsgTssPool) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
+	}
+	newMsg, err := NewMsgTssPool(msg.PubKeys, msg.PoolPubKey, msg.KeygenType, msg.Height, msg.Blame, msg.Chains, msg.Signer, msg.KeygenTime)
+	if err != nil {
+		return fmt.Errorf("fail to recreate MsgTssPool,err: %w", err)
+	}
+	if msg.ID != newMsg.ID {
+		return cosmos.ErrUnknownRequest("invalid tss message")
+	}
+
+	churnRetryBlocks := h.mgr.GetConstants().GetInt64Value(constants.ChurnRetryInterval)
+	if msg.Height <= common.BlockHeight(ctx)-churnRetryBlocks {
+		return cosmos.ErrUnknownRequest("invalid keygen block")
 	}
 
 	keygenBlock, err := h.mgr.Keeper().GetKeygenBlock(ctx, msg.Height)
@@ -64,32 +75,60 @@ func (h TssHandler) validateCurrent(ctx cosmos.Context, msg MsgTssPool) error {
 	}
 
 	for _, keygen := range keygenBlock.Keygens {
+		keyGenMembers := keygen.GetMembers()
+		if !msg.GetPubKeys().Equals(keyGenMembers) {
+			continue
+		}
+		// Make sure the keygen type are consistent
+		if msg.KeygenType != keygen.Type {
+			continue
+		}
 		for _, member := range keygen.GetMembers() {
 			addr, err := member.GetThorAddress()
 			if err == nil && addr.Equals(msg.Signer) {
-				return nil
+				return h.validateSigner(ctx, msg.Signer)
 			}
 		}
 	}
 
 	return cosmos.ErrUnauthorized("not authorized")
 }
-
+func (h TssHandler) validateSigner(ctx cosmos.Context, signer cosmos.AccAddress) error {
+	nodeSigner, err := h.mgr.Keeper().GetNodeAccount(ctx, signer)
+	if err != nil {
+		return fmt.Errorf("invalid signer")
+	}
+	if nodeSigner.IsEmpty() {
+		return fmt.Errorf("invalid signer")
+	}
+	if nodeSigner.Status != NodeActive && nodeSigner.Status != NodeReady {
+		return fmt.Errorf("invalid signer status(%s)", nodeSigner.Status)
+	}
+	// ensure we have enough rune
+	minBond, err := h.mgr.Keeper().GetMimir(ctx, constants.MinimumBondInRune.String())
+	if minBond < 0 || err != nil {
+		minBond = h.mgr.GetConstants().GetInt64Value(constants.MinimumBondInRune)
+	}
+	if nodeSigner.Bond.LT(cosmos.NewUint(uint64(minBond))) {
+		return fmt.Errorf("signer doesn't have enough rune")
+	}
+	return nil
+}
 func (h TssHandler) handle(ctx cosmos.Context, msg MsgTssPool) (*cosmos.Result, error) {
 	ctx.Logger().Info("handleMsgTssPool request", "ID:", msg.ID)
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.73.0")) {
+		return h.handleV73(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.68.0")) {
+		return h.handleV68(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.handleV1(ctx, msg)
 	}
 	return nil, errBadVersion
 }
 
-func (h TssHandler) handleV1(ctx cosmos.Context, msg MsgTssPool) (*cosmos.Result, error) {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.Result, error) {
-	ctx.Logger().Info(fmt.Sprintf("current version: %s", h.mgr.GetVersion().String()))
+func (h TssHandler) handleV73(ctx cosmos.Context, msg MsgTssPool) (*cosmos.Result, error) {
+	ctx.Logger().Info("handler tss", "current version", h.mgr.GetVersion())
 	if !msg.Blame.IsEmpty() {
 		ctx.Logger().Error(msg.Blame.String())
 	}
@@ -117,6 +156,10 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 		voter.PoolPubKey = msg.PoolPubKey
 		voter.PubKeys = msg.PubKeys
 	}
+	// voter's pool pubkey is the same as the one in messasge
+	if !voter.PoolPubKey.Equals(msg.PoolPubKey) {
+		return nil, fmt.Errorf("invalid pool pubkey")
+	}
 	observeSlashPoints := h.mgr.GetConstants().GetInt64Value(constants.ObserveSlashPoints)
 	observeFlex := h.mgr.GetConstants().GetInt64Value(constants.ObservationDelayFlexibility)
 	h.mgr.Slasher().IncSlashPoints(ctx, observeSlashPoints, msg.Signer)
@@ -126,10 +169,18 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 
 	}
 	h.mgr.Keeper().SetTssVoter(ctx, voter)
-	// doesn't have consensus yet
+
+	// doesn't have 2/3 majority consensus yet
 	if !voter.HasConsensus() {
-		ctx.Logger().Info("not having consensus yet, return")
 		return &cosmos.Result{}, nil
+	}
+
+	// when keygen success
+	if msg.IsSuccess() {
+		h.judgeLateSigner(ctx, msg, voter)
+		if !voter.HasCompleteConsensus() {
+			return &cosmos.Result{}, nil
+		}
 	}
 
 	if voter.BlockHeight == 0 {
@@ -144,7 +195,6 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 			chains := voter.ConsensusChains()
 			vault := NewVault(common.BlockHeight(ctx), InitVault, vaultType, voter.PoolPubKey, chains.Strings(), h.mgr.Keeper().GetChainContracts(ctx, chains))
 			vault.Membership = voter.PubKeys
-			vault.UpdateCryptonoteData(msg.CryptonoteData)
 
 			if err := h.mgr.Keeper().SetVault(ctx, vault); err != nil {
 				return nil, fmt.Errorf("fail to save vault: %w", err)
@@ -168,7 +218,7 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 					}
 				}
 			} else {
-				ctx.Logger().Info(fmt.Sprintf("expecting %d vaults, however only got %d so far, let's wait", len(keygenBlock.Keygens), len(initVaults)))
+				ctx.Logger().Info("not enough keygen yet", "expecting", len(keygenBlock.Keygens), "current", len(initVaults))
 			}
 
 			metric, err := h.mgr.Keeper().GetTssKeygenMetric(ctx, msg.PoolPubKey)
@@ -257,6 +307,49 @@ func (h TssHandler) handleCurrent(ctx cosmos.Context, msg MsgTssPool) (*cosmos.R
 
 	if (voter.BlockHeight + observeFlex) >= common.BlockHeight(ctx) {
 		h.mgr.Slasher().DecSlashPoints(ctx, observeSlashPoints, msg.Signer)
+	}
+
+	return &cosmos.Result{}, nil
+}
+func (h TssHandler) judgeLateSigner(ctx cosmos.Context, msg MsgTssPool, voter TssVoter) {
+	// if the voter doesn't reach 2/3 majority consensus , this method should not take any actions
+	if !voter.HasConsensus() || !msg.IsSuccess() {
+		return
+	}
+	slashPoints := h.mgr.GetConstants().GetInt64Value(constants.FailKeygenSlashPoints)
+	// when voter already has 2/3 majority signers , restore current message signer's slash points
+	if voter.MajorityConsensusBlockHeight > 0 {
+		h.mgr.Slasher().DecSlashPoints(ctx, slashPoints, msg.Signer)
+		if err := h.mgr.Keeper().ReleaseNodeAccountFromJail(ctx, msg.Signer); err != nil {
+			ctx.Logger().Error("fail to release node account from jail", "node address", msg.Signer, "error", err)
+		}
+		return
+	}
+
+	voter.MajorityConsensusBlockHeight = common.BlockHeight(ctx)
+	h.mgr.Keeper().SetTssVoter(ctx, voter)
+	for _, member := range msg.PubKeys {
+		pkey, err := common.NewPubKey(member)
+		if err != nil {
+			ctx.Logger().Error("fail to get pub key", "error", err)
+			continue
+		}
+		thorAddr, err := pkey.GetThorAddress()
+		if err != nil {
+			ctx.Logger().Error("fail to get thor address", "error", err)
+			continue
+		}
+		// whoever is in the keygen list , but didn't broadcast MsgTssPool
+		if !voter.HasSigned(thorAddr) {
+			h.mgr.Slasher().IncSlashPoints(ctx, slashPoints, thorAddr)
+			// go to jail
+			jailTime := h.mgr.GetConstants().GetInt64Value(constants.JailTimeKeygen)
+			releaseHeight := common.BlockHeight(ctx) + jailTime
+			reason := "failed to vote keygen in time"
+			if err := h.mgr.Keeper().SetNodeAccountJail(ctx, thorAddr, releaseHeight, reason); err != nil {
+				ctx.Logger().Error("fail to set node account jail", "node address", thorAddr, "reason", reason, "error", err)
+			}
+		}
 	}
 
 	return &cosmos.Result{}, nil

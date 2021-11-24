@@ -155,13 +155,36 @@ func (s *HelperSuite) TestSubsidizePoolWithSlashBond(c *C) {
 	poolBTC, err = mgr.Keeper().GetPool(ctx, common.BTCAsset)
 	c.Assert(err, IsNil)
 	c.Assert(poolBTC.BalanceRune.Equal(runeBTC), Equals, true)
+
+	ygg2 := GetRandomVault()
+	ygg2.Type = YggdrasilVault
+	ygg2.Coins = common.Coins{
+		common.NewCoin(common.RuneAsset(), cosmos.NewUint(2*common.One)),
+		common.NewCoin(tCanAsset, cosmos.NewUint(0)),
+	}
+	totalRuneLeft, err = getTotalYggValueInRune(ctx, mgr.Keeper(), ygg2)
+	slashAmt = cosmos.NewUint(2 * common.One)
+	c.Assert(subsidizePoolWithSlashBond(ctx, ygg2, totalRuneLeft, slashAmt, mgr), IsNil)
+}
+
+func (s *HelperSuite) TestPausedLP(c *C) {
+	ctx, mgr := setupManagerForTest(c)
+
+	c.Check(isLPPaused(ctx, common.BNBChain, mgr), Equals, false)
+	c.Check(isLPPaused(ctx, common.BTCChain, mgr), Equals, false)
+
+	mgr.Keeper().SetMimir(ctx, "PauseLPBTC", 1)
+	c.Check(isLPPaused(ctx, common.BTCChain, mgr), Equals, true)
+
+	mgr.Keeper().SetMimir(ctx, "PauseLP", 1)
+	c.Check(isLPPaused(ctx, common.BNBChain, mgr), Equals, true)
 }
 
 func (s *HelperSuite) TestRefundBondError(c *C) {
 	ctx, _ := setupKeeperForTest(c)
 	// active node should not refund bond
 	pk := GetRandomPubKey()
-	na := GetRandomNodeAccount(NodeActive)
+	na := GetRandomValidatorNode(NodeActive)
 	na.PubKeySet.Secp256k1 = pk
 	na.Bond = cosmos.NewUint(100 * common.One)
 	tx := GetRandomTx()
@@ -208,7 +231,7 @@ func (s *HelperSuite) TestRefundBondError(c *C) {
 
 func (s *HelperSuite) TestRefundBondHappyPath(c *C) {
 	ctx, _ := setupKeeperForTest(c)
-	na := GetRandomNodeAccount(NodeActive)
+	na := GetRandomValidatorNode(NodeActive)
 	na.Bond = cosmos.NewUint(12098 * common.One)
 	pk := GetRandomPubKey()
 	na.PubKeySet.Secp256k1 = pk
@@ -365,6 +388,28 @@ func (s *HelperSuite) TestAbandonPool(c *C) {
 	c.Assert(count, Equals, 0)
 }
 
+func (s *HelperSuite) TestDollarInRune(c *C) {
+	ctx, k := setupKeeperForTest(c)
+	mgr := NewDummyMgrWithKeeper(k)
+	busd, err := common.NewAsset("BNB.BUSD-BD1")
+	c.Assert(err, IsNil)
+	pool := NewPool()
+	pool.Asset = busd
+	pool.Status = PoolAvailable
+	pool.BalanceRune = cosmos.NewUint(85515078103667)
+	pool.BalanceAsset = cosmos.NewUint(709802235538353)
+	c.Assert(k.SetPool(ctx, pool), IsNil)
+
+	runeUSDPrice := telem(DollarInRune(ctx, mgr))
+	c.Assert(runeUSDPrice, Equals, float32(0.12047733))
+}
+
+func (s *HelperSuite) TestTelem(c *C) {
+	value := cosmos.NewUint(12047733)
+	c.Assert(value.Uint64(), Equals, uint64(12047733))
+	c.Assert(telem(value), Equals, float32(0.12047733))
+}
+
 type addGasFeesKeeperHelper struct {
 	keeper.Keeper
 	errGetNetwork bool
@@ -432,13 +477,13 @@ func newAddGasFeeTestHelper(c *C) addGasFeeTestHelper {
 	poolBTC.Status = PoolAvailable
 	c.Assert(mgr.Keeper().SetPool(ctx, poolBTC), IsNil)
 
-	na := GetRandomNodeAccount(NodeActive)
+	na := GetRandomValidatorNode(NodeActive)
 	c.Assert(mgr.Keeper().SetNodeAccount(ctx, na), IsNil)
 	yggVault := NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, na.PubKeySet.Secp256k1, common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	c.Assert(mgr.Keeper().SetVault(ctx, yggVault), IsNil)
 	version := GetCurrentVersion()
 	constAccessor := constants.GetConstantValues(version)
-	mgr.gasMgr = NewGasMgrV1(constAccessor, keeper)
+	mgr.gasMgr = newGasMgrV1(constAccessor, keeper)
 	return addGasFeeTestHelper{
 		ctx: ctx,
 		mgr: mgr,
@@ -571,4 +616,93 @@ func (s *HelperSuite) TestEmitPoolStageCostEvent(c *C) {
 		}
 	}
 	c.Assert(found, Equals, true)
+}
+
+func (s *HelperSuite) TestIsTradingHalt(c *C) {
+	ctx, mgr := setupManagerForTest(c)
+	txID := GetRandomTxHash()
+	tx := common.NewTx(txID, GetRandomBTCAddress(), GetRandomBTCAddress(), common.NewCoins(common.NewCoin(common.BTCAsset, cosmos.NewUint(100))), common.Gas{
+		common.NewCoin(common.BTCAsset, cosmos.NewUint(100)),
+	}, "swap:BNB.BNB:"+GetRandomBNBAddress().String())
+	memo, err := ParseMemoWithTHORNames(ctx, mgr.Keeper(), tx.Memo)
+	m, err := getMsgSwapFromMemo(memo.(SwapMemo), NewObservedTx(tx, common.BlockHeight(ctx), GetRandomPubKey(), common.BlockHeight(ctx)), GetRandomBech32Addr())
+	c.Assert(err, IsNil)
+
+	txAddLiquidity := common.NewTx(txID, GetRandomBTCAddress(), GetRandomBTCAddress(), common.NewCoins(common.NewCoin(common.BTCAsset, cosmos.NewUint(100))), common.Gas{
+		common.NewCoin(common.BTCAsset, cosmos.NewUint(100)),
+	}, "add:BTC.BTC:"+GetRandomTHORAddress().String())
+	memoAddExternal, err := ParseMemoWithTHORNames(ctx, mgr.Keeper(), txAddLiquidity.Memo)
+	mAddExternal, err := getMsgAddLiquidityFromMemo(ctx,
+		memoAddExternal.(AddLiquidityMemo),
+		NewObservedTx(txAddLiquidity, common.BlockHeight(ctx), GetRandomPubKey(), common.BlockHeight(ctx)),
+		GetRandomBech32Addr())
+
+	txAddRUNE := common.NewTx(txID, GetRandomTHORAddress(), GetRandomTHORAddress(), common.NewCoins(common.NewCoin(common.RuneNative, cosmos.NewUint(100))), common.Gas{
+		common.NewCoin(common.RuneNative, cosmos.NewUint(100)),
+	}, "add:BTC.BTC:"+GetRandomBTCAddress().String())
+	memoAddRUNE, err := ParseMemoWithTHORNames(ctx, mgr.Keeper(), txAddRUNE.Memo)
+	c.Assert(err, IsNil)
+	mAddRUNE, err := getMsgAddLiquidityFromMemo(ctx,
+		memoAddRUNE.(AddLiquidityMemo),
+		NewObservedTx(txAddRUNE, common.BlockHeight(ctx), GetRandomPubKey(), common.BlockHeight(ctx)),
+		GetRandomBech32Addr())
+	c.Assert(err, IsNil)
+
+	mgr.Keeper().SetTHORName(ctx, THORName{
+		"testtest",
+		common.BlockHeight(ctx) + 1024,
+		GetRandomBech32Addr(),
+		common.BNBAsset,
+		[]THORNameAlias{
+			{
+				Chain:   common.BNBChain,
+				Address: GetRandomBNBAddress(),
+			},
+		},
+	})
+	txWithThorname := common.NewTx(txID, GetRandomBTCAddress(), GetRandomBTCAddress(), common.NewCoins(common.NewCoin(common.BTCAsset, cosmos.NewUint(100))), common.Gas{
+		common.NewCoin(common.BTCAsset, cosmos.NewUint(100)),
+	}, "swap:BNB.BNB:testtest")
+	memoWithThorname, err := ParseMemoWithTHORNames(ctx, mgr.Keeper(), txWithThorname.Memo)
+	mWithThorname, err := getMsgSwapFromMemo(memoWithThorname.(SwapMemo), NewObservedTx(txWithThorname, common.BlockHeight(ctx), GetRandomPubKey(), common.BlockHeight(ctx)), GetRandomBech32Addr())
+	c.Assert(err, IsNil)
+
+	txSynth := common.NewTx(txID, GetRandomTHORAddress(), GetRandomTHORAddress(),
+		common.NewCoins(common.NewCoin(common.BNBAsset.GetSyntheticAsset(), cosmos.NewUint(100))),
+		common.Gas{common.NewCoin(common.BNBAsset, cosmos.NewUint(100))},
+		"swap:ETH.ETH:"+GetRandomTHORAddress().String())
+	memoRedeemSynth, err := ParseMemoWithTHORNames(ctx, mgr.Keeper(), txSynth.Memo)
+	c.Assert(err, IsNil)
+	mRedeemSynth, err := getMsgSwapFromMemo(memoRedeemSynth.(SwapMemo), NewObservedTx(txSynth, common.BlockHeight(ctx), GetRandomPubKey(), common.BlockHeight(ctx)), GetRandomBech32Addr())
+	c.Assert(err, IsNil)
+
+	c.Assert(isTradingHalt(ctx, m, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mAddExternal, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mAddRUNE, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mWithThorname, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mRedeemSynth, mgr), Equals, false)
+
+	mgr.Keeper().SetMimir(ctx, "HaltTrading", 1)
+	c.Assert(isTradingHalt(ctx, m, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mAddExternal, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mAddRUNE, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mWithThorname, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mRedeemSynth, mgr), Equals, true)
+	mgr.Keeper().DeleteMimir(ctx, "HaltTrading")
+
+	mgr.Keeper().SetMimir(ctx, "HaltBNBTrading", 1)
+	c.Assert(isTradingHalt(ctx, m, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mAddExternal, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mAddRUNE, mgr), Equals, false)
+	c.Assert(isTradingHalt(ctx, mWithThorname, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mRedeemSynth, mgr), Equals, true)
+	mgr.Keeper().DeleteMimir(ctx, "HaltBNBTrading")
+
+	mgr.Keeper().SetMimir(ctx, "HaltBTCTrading", 1)
+	c.Assert(isTradingHalt(ctx, m, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mAddExternal, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mAddRUNE, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mWithThorname, mgr), Equals, true)
+	c.Assert(isTradingHalt(ctx, mRedeemSynth, mgr), Equals, false)
+	mgr.Keeper().DeleteMimir(ctx, "HaltBTCTrading")
 }

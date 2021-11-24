@@ -298,14 +298,27 @@ func (m *ObservedTxVoter) GetTx(nodeAccounts NodeAccounts) ObservedTx {
 }
 
 func (m *ObservedTxVoter) getConsensusTx(accounts NodeAccounts, final bool) ObservedTx {
-	var txFinal ObservedTx
-	voters := make(map[string]bool)
-	for _, txIn := range m.Txs {
-		if txIn.IsFinal() != final {
+	for _, txFinal := range m.Txs {
+		voters := make(map[string]bool)
+		if txFinal.IsFinal() != final {
 			continue
 		}
-		if txFinal.IsEmpty() {
-			txFinal = txIn
+		for _, txIn := range m.Txs {
+			if txIn.IsFinal() != final {
+				continue
+			}
+			if !txFinal.Tx.EqualsEx(txIn.Tx) {
+				continue
+			}
+			for _, signer := range txIn.GetSigners() {
+				_, exist := voters[signer.String()]
+				if !exist && accounts.IsNodeKeys(signer) {
+					voters[signer.String()] = true
+				}
+			}
+		}
+		if HasSuperMajority(len(voters), len(accounts)) {
+			return txFinal
 		}
 		if !txFinal.Tx.ID.Equals(txIn.Tx.ID) {
 			continue
@@ -320,6 +333,19 @@ func (m *ObservedTxVoter) getConsensusTx(accounts NodeAccounts, final bool) Obse
 	}
 	if HasSuperMajority(len(voters), len(accounts)) {
 		return txFinal
+	}
+	return ObservedTx{}
+}
+
+// SetReverted set all the tx status to `Reverted` , only when a relevant errata tx had been processed
+func (m *ObservedTxVoter) SetReverted() {
+	m.setStatus(Status_reverted)
+	m.Reverted = true
+}
+
+func (m *ObservedTxVoter) setStatus(toStatus Status) {
+	for _, item := range m.Txs {
+		item.Status = toStatus
 	}
 	return ObservedTx{}
 }

@@ -1,11 +1,13 @@
 package types
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 
 	"gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/common/cosmos"
-	memo "gitlab.com/thorchain/thornode/x/thorchain/memo"
+	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
 )
 
 type TxIn struct {
@@ -42,14 +44,6 @@ type TxInStatusItem struct {
 	Status TxInStatus `json:"status"`
 }
 
-func (t TxInItem) GetAddressToCheck() common.Address {
-	m, err := memo.ParseMemo(t.Memo)
-	if err != nil {
-		return common.NoAddress
-	}
-	return m.GetDestination()
-}
-
 // IsEmpty return true only when every field in TxInItem is empty
 func (t TxInItem) IsEmpty() bool {
 	if t.BlockHeight == 0 &&
@@ -63,6 +57,12 @@ func (t TxInItem) IsEmpty() bool {
 		return true
 	}
 	return false
+}
+
+// CacheHash calculate the has used for signer cache
+func (t TxInItem) CacheHash(chain common.Chain, inboundHash string) string {
+	str := fmt.Sprintf("%s|%s|%s|%s|%s", chain, t.To, t.Coins, t.Memo, inboundHash)
+	return fmt.Sprintf("%X", sha256.Sum256([]byte(str)))
 }
 
 // GetTotalTransactionValue return the total value of the requested asset
@@ -82,7 +82,7 @@ func (t TxIn) GetTotalTransactionValue(asset common.Asset, excludeFrom []common.
 			continue
 		}
 		// skip confirmation counting if it is internal tx
-		m, err := memo.ParseMemo(item.Memo)
+		m, err := mem.ParseMemo(item.Memo)
 		if err == nil && m.IsInternal() {
 			continue
 		}

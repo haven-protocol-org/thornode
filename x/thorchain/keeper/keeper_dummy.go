@@ -159,16 +159,16 @@ func (k KVStoreDummy) GetTotalSupply(ctx cosmos.Context, asset common.Asset) cos
 	return cosmos.ZeroUint()
 }
 
-func (k KVStoreDummy) TotalActiveNodeAccount(_ cosmos.Context) (int, error) { return 0, kaboom }
-func (k KVStoreDummy) ListNodeAccountsWithBond(_ cosmos.Context) (NodeAccounts, error) {
+func (k KVStoreDummy) TotalActiveValidators(_ cosmos.Context) (int, error) { return 0, kaboom }
+func (k KVStoreDummy) ListValidatorsWithBond(_ cosmos.Context) (NodeAccounts, error) {
 	return nil, kaboom
 }
 
-func (k KVStoreDummy) ListNodeAccountsByStatus(_ cosmos.Context, _ NodeStatus) (NodeAccounts, error) {
+func (k KVStoreDummy) ListValidatorsByStatus(_ cosmos.Context, _ NodeStatus) (NodeAccounts, error) {
 	return nil, kaboom
 }
 
-func (k KVStoreDummy) ListActiveNodeAccounts(_ cosmos.Context) (NodeAccounts, error) {
+func (k KVStoreDummy) ListActiveValidators(_ cosmos.Context) (NodeAccounts, error) {
 	return nil, kaboom
 }
 
@@ -215,6 +215,9 @@ func (k KVStoreDummy) GetNodeAccountJail(ctx cosmos.Context, addr cosmos.AccAddr
 func (k KVStoreDummy) SetNodeAccountJail(ctx cosmos.Context, addr cosmos.AccAddress, height int64, reason string) error {
 	return kaboom
 }
+func (k KVStoreDummy) ReleaseNodeAccountFromJail(ctx cosmos.Context, addr cosmos.AccAddress) error {
+	return kaboom
+}
 
 func (k KVStoreDummy) GetObservingAddresses(_ cosmos.Context) ([]cosmos.AccAddress, error) {
 	return nil, kaboom
@@ -243,9 +246,12 @@ func (k KVStoreDummy) GetTssVoter(_ cosmos.Context, _ string) (TssVoter, error) 
 func (k KVStoreDummy) GetKeygenBlock(_ cosmos.Context, _ int64) (KeygenBlock, error) {
 	return KeygenBlock{}, kaboom
 }
-func (k KVStoreDummy) SetKeygenBlock(_ cosmos.Context, _ KeygenBlock)           { return }
-func (k KVStoreDummy) GetKeygenBlockIterator(_ cosmos.Context) cosmos.Iterator  { return nil }
-func (k KVStoreDummy) GetTxOut(_ cosmos.Context, _ int64) (*TxOut, error)       { return nil, kaboom }
+func (k KVStoreDummy) SetKeygenBlock(_ cosmos.Context, _ KeygenBlock)          { return }
+func (k KVStoreDummy) GetKeygenBlockIterator(_ cosmos.Context) cosmos.Iterator { return nil }
+func (k KVStoreDummy) GetTxOut(_ cosmos.Context, _ int64) (*TxOut, error)      { return nil, kaboom }
+func (k KVStoreDummy) GetTxOutValue(_ cosmos.Context, _ int64) (cosmos.Uint, error) {
+	return cosmos.ZeroUint(), kaboom
+}
 func (k KVStoreDummy) SetTxOut(_ cosmos.Context, _ *TxOut) error                { return kaboom }
 func (k KVStoreDummy) AppendTxOut(_ cosmos.Context, _ int64, _ TxOutItem) error { return kaboom }
 func (k KVStoreDummy) ClearTxOut(_ cosmos.Context, _ int64) error               { return kaboom }
@@ -327,6 +333,11 @@ func (k KVStoreDummy) GetMimir(_ cosmos.Context, key string) (int64, error) { re
 func (k KVStoreDummy) SetMimir(_ cosmos.Context, key string, value int64)   {}
 func (k KVStoreDummy) DeleteMimir(_ cosmos.Context, key string) error       { return kaboom }
 func (k KVStoreDummy) GetMimirIterator(ctx cosmos.Context) cosmos.Iterator  { return nil }
+func (k KVStoreDummy) GetNodePauseChain(ctx cosmos.Context, acc cosmos.AccAddress) int64 {
+	return int64(-1)
+}
+func (k KVStoreDummy) SetNodePauseChain(ctx cosmos.Context, acc cosmos.AccAddress) { return }
+
 func (k KVStoreDummy) GetNetworkFee(ctx cosmos.Context, chain common.Chain) (NetworkFee, error) {
 	return NetworkFee{}, kaboom
 }
@@ -390,6 +401,18 @@ func (k KVStoreDummy) GetChainContractIterator(ctx cosmos.Context) cosmos.Iterat
 func (k KVStoreDummy) GetChainContracts(ctx cosmos.Context, chains common.Chains) []ChainContract {
 	return nil
 }
+func (k KVStoreDummy) SetSolvencyVoter(_ cosmos.Context, _ SolvencyVoter) {}
+func (k KVStoreDummy) GetSolvencyVoter(_ cosmos.Context, _ common.TxID, _ common.Chain) (SolvencyVoter, error) {
+	return SolvencyVoter{}, kaboom
+}
+
+func (k KVStoreDummy) THORNameExists(ctx cosmos.Context, _ string) bool { return false }
+func (k KVStoreDummy) GetTHORName(ctx cosmos.Context, _ string) (THORName, error) {
+	return THORName{}, kaboom
+}
+func (k KVStoreDummy) SetTHORName(ctx cosmos.Context, name THORName)          {}
+func (k KVStoreDummy) GetTHORNameIterator(ctx cosmos.Context) cosmos.Iterator { return nil }
+func (k KVStoreDummy) DeleteTHORName(ctx cosmos.Context, _ string) error      { return kaboom }
 
 // a mock cosmos.Iterator implementation for testing purposes
 type DummyIterator struct {

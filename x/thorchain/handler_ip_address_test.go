@@ -12,14 +12,18 @@ type HandlerIPAddressSuite struct{}
 
 type TestIPAddresslKeeper struct {
 	keeper.KVStoreDummy
-	na NodeAccount
+	na        NodeAccount
+	vaultNode NodeAccount
 }
 
 func (k *TestIPAddresslKeeper) SendFromAccountToModule(ctx cosmos.Context, from cosmos.AccAddress, to string, coins common.Coins) error {
 	return nil
 }
 
-func (k *TestIPAddresslKeeper) GetNodeAccount(_ cosmos.Context, _ cosmos.AccAddress) (NodeAccount, error) {
+func (k *TestIPAddresslKeeper) GetNodeAccount(_ cosmos.Context, addr cosmos.AccAddress) (NodeAccount, error) {
+	if k.vaultNode.NodeAddress.Equals(addr) {
+		return NodeAccount{Type: NodeTypeVault}, nil
+	}
 	return k.na, nil
 }
 
@@ -35,6 +39,9 @@ func (k *TestIPAddresslKeeper) GetNetwork(ctx cosmos.Context) (Network, error) {
 func (k *TestIPAddresslKeeper) SetNetwork(ctx cosmos.Context, data Network) error {
 	return nil
 }
+func (k *TestIPAddresslKeeper) SendFromModuleToModule(ctx cosmos.Context, from, to string, coins common.Coins) error {
+	return nil
+}
 
 var _ = Suite(&HandlerIPAddressSuite{})
 
@@ -42,7 +49,8 @@ func (s *HandlerIPAddressSuite) TestValidate(c *C) {
 	ctx, _ := setupKeeperForTest(c)
 
 	keeper := &TestIPAddresslKeeper{
-		na: GetRandomNodeAccount(NodeActive),
+		na:        GetRandomValidatorNode(NodeActive),
+		vaultNode: GetRandomVaultNode(NodeActive),
 	}
 
 	handler := NewIPAddressHandler(NewDummyMgrWithKeeper(keeper))
@@ -55,13 +63,18 @@ func (s *HandlerIPAddressSuite) TestValidate(c *C) {
 	msg = &MsgSetIPAddress{}
 	err = handler.validate(ctx, *msg)
 	c.Assert(err, NotNil)
+
+	// vault nodes can't set ip address
+	msg = NewMsgSetIPAddress("8.8.8.8", keeper.vaultNode.NodeAddress)
+	err = handler.validate(ctx, *msg)
+	c.Assert(err, NotNil)
 }
 
 func (s *HandlerIPAddressSuite) TestHandle(c *C) {
 	ctx, _ := setupKeeperForTest(c)
 
 	keeper := &TestIPAddresslKeeper{
-		na: GetRandomNodeAccount(NodeActive),
+		na: GetRandomValidatorNode(NodeActive),
 	}
 
 	handler := NewIPAddressHandler(NewDummyMgrWithKeeper(keeper))
@@ -149,7 +162,7 @@ func (s *HandlerIPAddressSuite) TestHandlerSetIPAddress_validation(c *C) {
 			name: "fail to save node account should return an error",
 			messageProvider: func(ctx cosmos.Context, helper *HandlerIPAddressTestHelper) cosmos.Msg {
 				helper.failSaveNodeAccount = true
-				nodeAccount := GetRandomNodeAccount(NodeWhiteListed)
+				nodeAccount := GetRandomValidatorNode(NodeWhiteListed)
 				helper.Keeper.SetNodeAccount(ctx, nodeAccount)
 				return NewMsgSetIPAddress("192.168.0.1", nodeAccount.NodeAddress)
 			},
@@ -161,7 +174,8 @@ func (s *HandlerIPAddressSuite) TestHandlerSetIPAddress_validation(c *C) {
 		{
 			name: "all good - happy path",
 			messageProvider: func(ctx cosmos.Context, helper *HandlerIPAddressTestHelper) cosmos.Msg {
-				nodeAccount := GetRandomNodeAccount(NodeWhiteListed)
+				nodeAccount := GetRandomValidatorNode(NodeWhiteListed)
+				FundModule(c, ctx, helper, BondName, common.One*100)
 				helper.SendFromModuleToAccount(ctx, ModuleName, nodeAccount.NodeAddress, common.Coins{
 					common.NewCoin(common.RuneAsset(), cosmos.NewUint(1000*common.One)),
 				})

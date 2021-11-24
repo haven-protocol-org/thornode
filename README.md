@@ -162,6 +162,10 @@ make test-watch
 
 Current active branch is `develop` , so when you open PR , make sure your target branch is `develop`
 
+### Vulnerabilities and Bug Bounties
+
+If you find a vulnerability in THORNode, please submit it for a bounty according to these [guidelines](bugbounty.md).
+
 ### the semantic version and release
 THORNode manage changelog entry the same way like gitlab, refer to (https://docs.gitlab.com/ee/development/changelog.html) for more detail. Once a merge request get merged into master branch,
 if the merge request upgrade the [version](https://gitlab.com/thorchain/thornode/-/blob/master/version), then a new release will be created automatically, and the repository will be tagged with
@@ -297,3 +301,9 @@ merge_request:
 author:
 type: added
 ```
+
+## New Chain Integration
+The process to integrate a new chain into THORChain is multifaceted. As it requires changes to multiple repos in multiple languages (`golang`, `python`, and `javascript`).
+
+To learn more about how to add a new chain, follow [this doc](docs/newchain.md)
+To learn more about creating your own private chain as a testing and development environment, follow [this doc](docs/private_mock_chain.d)

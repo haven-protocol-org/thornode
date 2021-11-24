@@ -18,8 +18,8 @@ type SlasherV54 struct {
 	eventMgr EventManager
 }
 
-// NewSlasherV54 create a new instance of Slasher
-func NewSlasherV54(keeper keeper.Keeper, eventMgr EventManager) *SlasherV54 {
+// newSlasherV54 create a new instance of Slasher
+func newSlasherV54(keeper keeper.Keeper, eventMgr EventManager) *SlasherV54 {
 	return &SlasherV54{keeper: keeper, eventMgr: eventMgr}
 }
 
@@ -35,7 +35,7 @@ func (s *SlasherV54) BeginBlock(ctx cosmos.Context, req abci.RequestBeginBlock, 
 				ctx.Logger().Error("fail to slash for double signing a block", "error", err)
 			}
 		default:
-			ctx.Logger().Error(fmt.Sprintf("ignored unknown evidence type: %s", evidence.Type))
+			ctx.Logger().Error("ignored unknown evidence type", "type", evidence.Type)
 		}
 	}
 }
@@ -51,7 +51,7 @@ func (s *SlasherV54) HandleDoubleSign(ctx cosmos.Context, addr crypto.Address, i
 		return nil
 	}
 
-	nas, err := s.keeper.ListActiveNodeAccounts(ctx)
+	nas, err := s.keeper.ListActiveValidators(ctx)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func (s *SlasherV54) slashNotObserving(ctx cosmos.Context, txHash common.TxID, c
 		return nil
 	}
 
-	nodes, err := s.keeper.ListActiveNodeAccounts(ctx)
+	nodes, err := s.keeper.ListActiveValidators(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get list of active accounts: %w", err)
 	}

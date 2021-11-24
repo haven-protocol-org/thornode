@@ -63,11 +63,11 @@ func (k *tssKeeperHelper) GetTssVoter(ctx cosmos.Context, id string) (TssVoter, 
 	return k.Keeper.GetTssVoter(ctx, id)
 }
 
-func (k *tssKeeperHelper) ListActiveNodeAccounts(ctx cosmos.Context) (NodeAccounts, error) {
+func (k *tssKeeperHelper) ListActiveValidators(ctx cosmos.Context) (NodeAccounts, error) {
 	if k.errListActiveAccounts {
 		return NodeAccounts{}, kaboom
 	}
-	return k.Keeper.ListActiveNodeAccounts(ctx)
+	return k.Keeper.ListActiveValidators(ctx)
 }
 
 func (k *tssKeeperHelper) GetNetwork(ctx cosmos.Context) (Network, error) {
@@ -100,15 +100,14 @@ func newTssKeeperHelper(keeper keeper.Keeper) *tssKeeperHelper {
 func newTssHandlerTestHelper(c *C) tssHandlerTestHelper {
 	ctx, k := setupKeeperForTest(c)
 	ctx = ctx.WithBlockHeight(1023)
-	keeper := newTssKeeperHelper(k)
+	keeperHelper := newTssKeeperHelper(k)
 	FundModule(c, ctx, k, BondName, 500)
 	// active account
-	nodeAccount := GetRandomNodeAccount(NodeActive)
+	nodeAccount := GetRandomValidatorNode(NodeActive)
 	nodeAccount.Bond = cosmos.NewUint(100 * common.One)
-	c.Assert(keeper.SetNodeAccount(ctx, nodeAccount), IsNil)
+	c.Assert(keeperHelper.SetNodeAccount(ctx, nodeAccount), IsNil)
 
 	mgr := NewDummyMgr()
-
 	var members common.PubKeys
 	for i := 0; i < 8; i++ {
 		members = append(members, GetRandomPubKey())
@@ -118,27 +117,34 @@ func newTssHandlerTestHelper(c *C) tssHandlerTestHelper {
 	})
 	signer, err := members[0].GetThorAddress()
 	c.Assert(err, IsNil)
-
+	nodeReady := GetRandomValidatorNode(NodeReady)
+	nodeReady.NodeAddress = signer
+	nodeReady.Bond = cosmos.NewUint(1000000 * common.One)
+	c.Assert(keeperHelper.SetNodeAccount(ctx, nodeReady), IsNil)
 	keygenBlock := NewKeygenBlock(common.BlockHeight(ctx))
 	keygenBlock.Keygens = []Keygen{
-		{Members: members.Strings()},
+		{
+			Type:    AsgardKeygen,
+			Members: members.Strings(),
+		},
 	}
-	keeper.SetKeygenBlock(ctx, keygenBlock)
+	keeperHelper.SetKeygenBlock(ctx, keygenBlock)
 	keygenTime := int64(1024)
 	poolPk := GetRandomPubKey()
 	msg, err := NewMsgTssPool(members.Strings(), poolPk, AsgardKeygen, common.BlockHeight(ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), signer, keygenTime)
 	c.Assert(err, IsNil)
 	voter := NewTssVoter(msg.ID, members.Strings(), poolPk)
-	keeper.SetTssVoter(ctx, voter)
+	keeperHelper.SetTssVoter(ctx, voter)
 
 	asgardVault := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, GetRandomPubKey(), common.Chains{common.RuneAsset().Chain}.Strings(), []ChainContract{})
-	c.Assert(keeper.SetVault(ctx, asgardVault), IsNil)
+	c.Assert(keeperHelper.SetVault(ctx, asgardVault), IsNil)
+
 	return tssHandlerTestHelper{
 		ctx:           ctx,
 		version:       mgr.GetVersion(),
-		keeper:        keeper,
+		keeper:        keeperHelper,
 		poolPk:        poolPk,
-		constAccessor: mgr.GetConstants(),
+		constAccessor: constants.GetConstantValues(GetCurrentVersion()),
 		nodeAccount:   nodeAccount,
 		mgr:           mgr,
 		members:       members,
@@ -168,14 +174,14 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 		{
 			name: "Not signed by an active account should return an error",
 			messageCreator: func(helper tssHandlerTestHelper) cosmos.Msg {
-				msg, err := NewMsgTssPool(helper.members.Strings(), GetRandomPubKey(), AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), GetRandomNodeAccount(NodeActive).NodeAddress, keygenTime)
+				msg, err := NewMsgTssPool(helper.members.Strings(), GetRandomPubKey(), AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), GetRandomValidatorNode(NodeActive).NodeAddress, keygenTime)
 				c.Assert(err, IsNil)
 				return msg
 			},
 			runner: func(handler TssHandler, msg cosmos.Msg, helper tssHandlerTestHelper) (*cosmos.Result, error) {
 				return handler.Run(helper.ctx, msg)
 			},
-			expectedResult: se.ErrUnauthorized,
+			expectedResult: se.ErrUnknownRequest,
 		},
 		{
 			name: "empty signer should return an error",
@@ -308,7 +314,7 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 			},
 			runner: func(handler TssHandler, msg cosmos.Msg, helper tssHandlerTestHelper) (*cosmos.Result, error) {
 				for i := 0; i < 8; i++ {
-					na := GetRandomNodeAccount(NodeActive)
+					na := GetRandomValidatorNode(NodeActive)
 					_ = helper.keeper.SetNodeAccount(helper.ctx, na)
 				}
 				return handler.Run(helper.ctx, msg)
@@ -345,6 +351,19 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 				return handler.Run(helper.ctx, msg)
 			},
 			expectedResult: nil,
+		},
+		{
+			name: "When tss message integrity compromised, it should result an error",
+			messageCreator: func(helper tssHandlerTestHelper) cosmos.Msg {
+				tssMsg, err := NewMsgTssPool(helper.members.Strings(), GetRandomPubKey(), AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), helper.signer, keygenTime)
+				c.Assert(err, IsNil)
+				tssMsg.PoolPubKey = GetRandomPubKey()
+				return tssMsg
+			},
+			runner: func(handler TssHandler, msg cosmos.Msg, helper tssHandlerTestHelper) (*cosmos.Result, error) {
+				return handler.Run(helper.ctx, msg)
+			},
+			expectedResult: se.ErrUnknownRequest,
 		},
 		{
 			name: "fail to keygen with invalid blame node account address should return an error",
@@ -603,6 +622,23 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 			},
 			expectedResult: kaboom,
 		},
+		{
+			name: "When members in message doesn't match members in keygen blocks should fail",
+			messageCreator: func(helper tssHandlerTestHelper) cosmos.Msg {
+				members := common.PubKeys{
+					GetRandomPubKey(),
+					GetRandomPubKey(),
+					helper.members[0],
+				}
+				tssMsg, err := NewMsgTssPool(members.Strings(), GetRandomPubKey(), AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), helper.signer, keygenTime)
+				c.Assert(err, IsNil)
+				return tssMsg
+			},
+			runner: func(handler TssHandler, msg cosmos.Msg, helper tssHandlerTestHelper) (*cosmos.Result, error) {
+				return handler.Run(helper.ctx, msg)
+			},
+			expectedResult: se.ErrUnauthorized,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -618,5 +654,48 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 		if tc.validator != nil {
 			tc.validator(helper, msg, result, c)
 		}
+	}
+}
+
+func (s *HandlerTssSuite) TestKeygenSuccessHandler(c *C) {
+	helper := newTssHandlerTestHelper(c)
+	handler := NewTssHandler(NewDummyMgrWithKeeper(helper.keeper))
+	slasher := handler.mgr.Slasher()
+	dummySlasher := slasher.(*DummySlasher)
+	keygenTime := int64(1024)
+	poolPubKey := GetRandomPubKey()
+	failKeyGenSlashPoints := helper.constAccessor.GetInt64Value(constants.FailKeygenSlashPoints)
+	for idx, item := range helper.members {
+		thorAddr, err := item.GetThorAddress()
+		c.Assert(err, IsNil)
+		tssMsg, err := NewMsgTssPool(helper.members.Strings(), poolPubKey, AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), thorAddr, keygenTime)
+		c.Assert(err, IsNil)
+		result, err := handler.handle(helper.ctx, *tssMsg)
+		c.Assert(err, IsNil)
+		c.Assert(result, NotNil)
+		if HasSuperMajority(idx+1, len(helper.members)) {
+			// ensure the late vote members get slashed
+			for _, m := range helper.members[idx+1:] {
+				slashThorAddr, err := m.GetThorAddress()
+				c.Assert(err, IsNil)
+				points, ok := dummySlasher.pts[slashThorAddr.String()]
+				c.Assert(ok, Equals, true)
+				c.Assert(points == failKeyGenSlashPoints, Equals, true)
+				j, err := helper.keeper.GetNodeAccountJail(helper.ctx, slashThorAddr)
+				c.Assert(err, IsNil)
+				c.Assert(j.ReleaseHeight > helper.ctx.BlockHeight(), Equals, true)
+			}
+		}
+	}
+	// no one should be slashed
+	for _, item := range helper.members {
+		thorAddr, err := item.GetThorAddress()
+		c.Assert(err, IsNil)
+		points, ok := dummySlasher.pts[thorAddr.String()]
+		c.Assert(ok, Equals, true)
+		c.Assert(points == 0, Equals, true)
+		j, err := helper.keeper.GetNodeAccountJail(helper.ctx, thorAddr)
+		c.Assert(err, IsNil)
+		c.Assert(j.ReleaseHeight <= helper.ctx.BlockHeight(), Equals, true)
 	}
 }

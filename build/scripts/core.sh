@@ -113,18 +113,27 @@ peer_list() {
   sed -i -e "s/$PEERSISTENT_PEER_TARGET/persistent_peers = \"$PEERUSER\"/g" ~/.thornode/config/config.toml
 }
 
+block_time() {
+  sed -i -e "s/timeout_commit = \"5s\"/timeout_commit = \"$1\"/g" ~/.thornode/config/config.toml
+}
+
 seeds_list() {
   SEEDS=$1
+  EXPECTED_NETWORK=$2
   OLD_IFS=$IFS
   IFS=","
   SEED_LIST=""
   for SEED in $SEEDS; do
     NODE_ID=$(curl -sL --fail -m 10 "$SEED:$PORT_RPC/status" | jq -r .result.node_info.id) || continue
-    SEED="$NODE_ID@$SEED:$PORT_P2P"
-    if [ -z "$SEED_LIST" ]; then
-      SEED_LIST=$SEED
-    else
-      SEED_LIST="$SEED_LIST,$SEED"
+    NETWORK=$(curl -sL --fail -m 10 "$SEED:$PORT_RPC/status" | jq -r .result.node_info.network) || continue
+    # make sure the seeds are on the same network
+    if [ "$NETWORK" = "$EXPECTED_NETWORK" ]; then
+      SEED="$NODE_ID@$SEED:$PORT_P2P"
+      if [ -z "$SEED_LIST" ]; then
+        SEED_LIST=$SEED
+      else
+        SEED_LIST="$SEED_LIST,$SEED"
+      fi
     fi
   done
   IFS=$OLD_IFS
@@ -146,6 +155,8 @@ external_address() {
 
 enable_telemetry() {
   sed -i -e "s/prometheus = false/prometheus = true/g" ~/.thornode/config/config.toml
+  sed -i -e "s/enabled = false/enabled = true/g" ~/.thornode/config/app.toml
+  sed -i -e "s/prometheus-retention-time = 0/prometheus-retention-time = 600/g" ~/.thornode/config/app.toml
 }
 
 gen_bnb_address() {
@@ -174,7 +185,7 @@ deploy_eth_contract() {
   echo "Deploying eth contracts"
   until curl -s "$1" &>/dev/null; do
     echo "Waiting for ETH node to be available ($1)"
-    sleep 3
+    sleep 1
   done
   python3 scripts/eth/eth-tool.py --ethereum "$1" deploy --from_address 0x3fd2d4ce97b082d4bce3f9fee2a3d60668d2f473 >/tmp/contract.log 2>&1
   cat /tmp/contract.log

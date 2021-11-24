@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -29,8 +28,6 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/x/thorchain"
 )
-
-func Test(t *testing.T) { TestingT(t) }
 
 type BlockScannerTestSuite struct {
 	m      *metrics.Metrics
@@ -104,24 +101,26 @@ func (s *BlockScannerTestSuite) TestNewBlockScanner(c *C) {
 	c.Assert(err, IsNil)
 	pubKeyManager, err := pubkeymanager.NewPubKeyManager(s.bridge, s.m)
 	c.Assert(err, IsNil)
-
-	bs, err := NewETHScanner(getConfigForTest(""), nil, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pubKeyManager)
+	solvencyReporter := func(height int64) error {
+		return nil
+	}
+	bs, err := NewETHScanner(getConfigForTest(""), nil, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pubKeyManager, solvencyReporter, nil)
 	c.Assert(err, NotNil)
 	c.Assert(bs, IsNil)
 
-	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, nil, pubKeyManager)
+	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, nil, pubKeyManager, solvencyReporter, nil)
 	c.Assert(err, NotNil)
 	c.Assert(bs, IsNil)
 
-	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), nil, s.bridge, s.m, pubKeyManager)
+	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), nil, s.bridge, s.m, pubKeyManager, solvencyReporter, nil)
 	c.Assert(err, NotNil)
 	c.Assert(bs, IsNil)
 
-	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, nil)
+	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, nil, solvencyReporter, nil)
 	c.Assert(err, NotNil)
 	c.Assert(bs, IsNil)
 
-	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pubKeyManager)
+	bs, err = NewETHScanner(getConfigForTest("127.0.0.1"), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pubKeyManager, solvencyReporter, nil)
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
 }
@@ -144,7 +143,9 @@ func (s *BlockScannerTestSuite) TestProcessBlock(c *C) {
 		default:
 			body, err := ioutil.ReadAll(req.Body)
 			c.Assert(err, IsNil)
-			defer req.Body.Close()
+			defer func() {
+				c.Assert(req.Body.Close(), IsNil)
+			}()
 			type RPCRequest struct {
 				JSONRPC string          `json:"jsonrpc"`
 				ID      interface{}     `json:"id"`
@@ -195,11 +196,17 @@ func (s *BlockScannerTestSuite) TestProcessBlock(c *C) {
 	c.Assert(err, IsNil)
 	pubKeyMgr, err := pubkeymanager.NewPubKeyManager(bridge, s.m)
 	c.Assert(err, IsNil)
-	pubKeyMgr.Start()
-	defer pubKeyMgr.Stop()
-	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, bridge, s.m, pubKeyMgr)
+	c.Assert(pubKeyMgr.Start(), IsNil)
+	defer func() {
+		c.Assert(pubKeyMgr.Stop(), IsNil)
+	}()
+
+	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, bridge, s.m, pubKeyMgr, func(height int64) error {
+		return nil
+	}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
+	whitelistSmartContractAddres = append(whitelistSmartContractAddres, "0x40bcd4dB8889a8Bf0b1391d0c819dcd9627f9d0a")
 	txIn, err := bs.FetchTxs(int64(1))
 	c.Assert(err, IsNil)
 	c.Check(len(txIn.TxArray), Equals, 1)
@@ -286,7 +293,7 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 					c.Assert(err, IsNil)
 					return
 				} else if string(rpcRequest.Params) == `["0xe8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599"]` {
-					_, err := rw.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"root":"0x","status":"0x1","cumulativeGasUsed":"0x9a91","logsBloom":"0x00000000000000000002000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000008000000000000000000000000000000000000000002000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001000000000000004000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000010000800000000000000000","logs":[{"address":"0xe65e9d372f8cacc7b6dfcd4af6507851ed31bb44","topics":["0x05b90458f953d3fcb2d7fb25616a2fddeca749d0c47cc5c9832d0266b5346eea","0x0000000000000000000000003fd2d4ce97b082d4bce3f9fee2a3d60668d2f473","0x0000000000000000000000009f4aab49a9cd8fc54dcb3701846f608a6f2c44da"],"data":"0x0000000000000000000000003b7fa4dd21c6f9ba3ca375217ead7cab9d6bf483000000000000000000000000000000000000000000000000ad67810426efff180000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000568656c6c6f000000000000000000000000000000000000000000000000000000","blockNumber":"0x1a6","transactionHash":"0xe8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599","transactionIndex":"0x0","blockHash":"0x39b72c414a032e8172f871c94e2382065c3e848ae69bb68f60114cb5b8fa7868","logIndex":"0x0","removed":false}],"transactionHash":"0xe8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599","contractAddress":"0x0000000000000000000000000000000000000000","gasUsed":"0x9a91","blockHash":"0x39b72c414a032e8172f871c94e2382065c3e848ae69bb68f60114cb5b8fa7868","blockNumber":"0x1a6","transactionIndex":"0x0"}}`))
+					_, err := rw.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"root":"0x","status":"0x1","cumulativeGasUsed":"0x9a91","logsBloom":"0x00000000000000000002000020000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004000000000000000008000000000000000000000000000000000000000002000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001000000000000004000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000010000800000000000000000","logs":[{"address":"0xe65e9d372f8cacc7b6dfcd4af6507851ed31bb44","topics":["0x05b90458f953d3fcb2d7fb25616a2fddeca749d0c47cc5c9832d0266b5346eea","0x0000000000000000000000003fd2d4ce97b082d4bce3f9fee2a3d60668d2f473","0x0000000000000000000000009f4aab49a9cd8fc54dcb3701846f608a6f2c44da"],"data":"0x0000000000000000000000003b7fa4dd21c6f9ba3ca375217ead7cab9d6bf48300000000000000000000000000000000000000000000000011572680468e44000000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000f59474744524153494c2b3a313032340000000000000000000000000000000000","blockNumber":"0x1a6","transactionHash":"0xe8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599","transactionIndex":"0x0","blockHash":"0x39b72c414a032e8172f871c94e2382065c3e848ae69bb68f60114cb5b8fa7868","logIndex":"0x0","removed":false}],"transactionHash":"0xe8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599","contractAddress":"0x0000000000000000000000000000000000000000","gasUsed":"0x9a91","blockHash":"0x39b72c414a032e8172f871c94e2382065c3e848ae69bb68f60114cb5b8fa7868","blockNumber":"0x1a6","transactionIndex":"0x0"}}`))
 					c.Assert(err, IsNil)
 					return
 				} else if string(rpcRequest.Params) == `["0x4b19cce0afd29141931f2c35e8805ab596c6467d19ddbde6268b606c8b258106"]` {
@@ -329,10 +336,14 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(bridge, NotNil)
 	pkeyMgr, err := pubkeymanager.NewPubKeyManager(bridge, s.m)
-	pkeyMgr.Start()
-	defer pkeyMgr.Stop()
+	c.Assert(pkeyMgr.Start(), IsNil)
+	defer func() {
+		c.Assert(pkeyMgr.Stop(), IsNil)
+	}()
 	c.Assert(err, IsNil)
-	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pkeyMgr)
+	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pkeyMgr, func(height int64) error {
+		return nil
+	}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
 
@@ -376,7 +387,9 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 		true,
 	)
 
-	bs, err = NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, s.bridge, s.m, pkeyMgr)
+	bs, err = NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, s.bridge, s.m, pkeyMgr, func(height int64) error {
+		return nil
+	}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
 	// smart contract - deposit
@@ -393,7 +406,13 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 	c.Assert(txInItem.Coins[0].Asset.String(), Equals, "ETH.TKN-0X3B7FA4DD21C6F9BA3CA375217EAD7CAB9D6BF483")
 	c.Assert(txInItem.Coins[0].Amount.Equal(cosmos.NewUint(500000000)), Equals, true)
 
-	bs, err = NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, s.bridge, s.m, pkeyMgr)
+	bs, err = NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(1337), ethClient, s.bridge, s.m, pkeyMgr, func(height int64) error {
+		return nil
+	}, nil)
+	// whitelist the address for test
+	whitelistSmartContractAddres = append(whitelistSmartContractAddres,
+		"0xe65e9d372f8cacc7b6dfcd4af6507851ed31bb44",
+		"0x81a392e6a757d58a7eb6781a775a3449da3b9df5")
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
 	// smart contract - deposit via smart contract (transaction to != router)
@@ -431,7 +450,7 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 	txInItem, err = bs.fromTxToTxIn(tx)
 	c.Assert(err, IsNil)
 	c.Assert(txInItem, NotNil)
-	c.Assert(txInItem.Sender, Equals, "0x5DcD69C5a0e2a6CCf7416C1c259063B88668A5cA")
+	c.Assert(txInItem.Sender, Equals, "0x5dcd69c5a0e2a6ccf7416c1c259063b88668a5ca")
 	c.Assert(txInItem.To, Equals, "0x8d8Bba78A27881294b34c82Fb5978596e2DF66dD")
 	c.Assert(txInItem.Memo, Equals, "OUT:C2237B9599FCC2D3724486DAFA60BA1940650092D31551D8584561B600BCBF43")
 	c.Assert(txInItem.Tx, Equals, "4b8845b0d99c13bae6716b3c422cdb61aa141c0db04cfb18bcc031b76471595b")
@@ -445,13 +464,13 @@ func (s *BlockScannerTestSuite) TestFromTxToTxIn(c *C) {
 	txInItem, err = bs.fromTxToTxIn(tx)
 	c.Assert(err, IsNil)
 	c.Assert(txInItem, NotNil)
-	c.Assert(txInItem.Sender, Equals, "0x3fd2D4cE97B082d4BcE3f9fee2A3D60668D2f473")
+	c.Assert(txInItem.Sender, Equals, "0x3fd2d4ce97b082d4bce3f9fee2a3d60668d2f473")
 	c.Assert(txInItem.To, Equals, "0x9F4AaB49A9cd8FC54Dcb3701846f608a6f2C44dA")
-	c.Assert(txInItem.Memo, Equals, "hello")
+	c.Assert(txInItem.Memo, Equals, "YGGDRASIL+:1024")
 	c.Assert(txInItem.Tx, Equals, "e8d7b5ff2e2f3ae814dfd422444196a72349e03a761eda5452fcc244291fc599")
 	c.Assert(txInItem.Coins[0].Asset.String(), Equals, "ETH.TKN-0X3B7FA4DD21C6F9BA3CA375217EAD7CAB9D6BF483")
 	c.Logf("======> %+v \n", txInItem)
-	c.Assert(txInItem.Coins[0].Amount.Equal(cosmos.NewUint(1249509754)), Equals, true)
+	c.Assert(txInItem.Coins[0].Amount.Equal(cosmos.NewUint(124950975)), Equals, true)
 }
 
 func (s *BlockScannerTestSuite) TestProcessReOrg(c *C) {
@@ -549,9 +568,13 @@ func (s *BlockScannerTestSuite) TestProcessReOrg(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(bridge, NotNil)
 	pkeyMgr, err := pubkeymanager.NewPubKeyManager(bridge, s.m)
-	pkeyMgr.Start()
-	defer pkeyMgr.Stop()
-	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pkeyMgr)
+	c.Assert(pkeyMgr.Start(), IsNil)
+	defer func() {
+		c.Assert(pkeyMgr.Stop(), IsNil)
+	}()
+	bs, err := NewETHScanner(getConfigForTest(server.URL), storage, big.NewInt(int64(types.Mainnet)), ethClient, s.bridge, s.m, pkeyMgr, func(height int64) error {
+		return nil
+	}, nil)
 	c.Assert(err, IsNil)
 	c.Assert(bs, NotNil)
 	block, err := CreateBlock(0)

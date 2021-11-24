@@ -96,11 +96,6 @@ func (m *Vault) UpdateStatus(s VaultStatus, height int64) {
 	m.StatusSince = height
 }
 
-// UpdateCryptonoteData updates the cryotonote data for this vault
-func (m *Vault) UpdateCryptonoteData(cnData string) {
-	m.CryptonoteData = cnData
-}
-
 // Valid check whether Vault has all necessary values
 func (m Vault) Valid() error {
 	if m.PubKey.IsEmpty() {

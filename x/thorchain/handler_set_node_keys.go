@@ -42,17 +42,15 @@ func (h SetNodeKeysHandler) Run(ctx cosmos.Context, m cosmos.Msg) (*cosmos.Resul
 
 func (h SetNodeKeysHandler) validate(ctx cosmos.Context, msg MsgSetNodeKeys) error {
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.64.0")) {
+		return h.validateV64(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.validateV1(ctx, msg)
 	}
 	return errInvalidVersion
 }
 
-func (h SetNodeKeysHandler) validateV1(ctx cosmos.Context, msg MsgSetNodeKeys) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h SetNodeKeysHandler) validateCurrent(ctx cosmos.Context, msg MsgSetNodeKeys) error {
+func (h SetNodeKeysHandler) validateV64(ctx cosmos.Context, msg MsgSetNodeKeys) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
@@ -85,24 +83,26 @@ func (h SetNodeKeysHandler) validateCurrent(ctx cosmos.Context, msg MsgSetNodeKe
 		return err
 	}
 
+	if !nodeAccount.PubKeySet.IsEmpty() {
+		return fmt.Errorf("node %s already has pubkey set assigned", nodeAccount.NodeAddress)
+	}
+
 	return nil
 }
 
 func (h SetNodeKeysHandler) handle(ctx cosmos.Context, msg MsgSetNodeKeys) (*cosmos.Result, error) {
 	ctx.Logger().Info("handleMsgSetNodeKeys request")
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.57.0")) {
+		return h.handleV57(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.handleV1(ctx, msg)
 	}
 	return nil, errBadVersion
 }
 
-// handleV1 a message to set node keys
-func (h SetNodeKeysHandler) handleV1(ctx cosmos.Context, msg MsgSetNodeKeys) (*cosmos.Result, error) {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h SetNodeKeysHandler) handleCurrent(ctx cosmos.Context, msg MsgSetNodeKeys) (*cosmos.Result, error) {
+// handleV57 a message to set node keys
+func (h SetNodeKeysHandler) handleV57(ctx cosmos.Context, msg MsgSetNodeKeys) (*cosmos.Result, error) {
 	nodeAccount, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.Signer)
 	if err != nil {
 		ctx.Logger().Error("fail to get node account", "error", err, "address", msg.Signer.String())
@@ -129,7 +129,7 @@ func (h SetNodeKeysHandler) handleCurrent(ctx cosmos.Context, msg MsgSetNodeKeys
 	// add 10 bond to reserve
 	coin := common.NewCoin(common.RuneNative, cost)
 	if !cost.IsZero() {
-		if err := h.mgr.Keeper().SendFromAccountToModule(ctx, msg.Signer, ReserveName, common.NewCoins(coin)); err != nil {
+		if err := h.mgr.Keeper().SendFromModuleToModule(ctx, BondName, ReserveName, common.NewCoins(coin)); err != nil {
 			ctx.Logger().Error("fail to transfer funds from bond to reserve", "error", err)
 			return nil, err
 		}

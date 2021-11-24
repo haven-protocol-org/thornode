@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,9 +20,13 @@ import (
 	"gitlab.com/thorchain/thornode/constants"
 )
 
+// BlockScannerFetcher define the methods a block scanner need to implement
 type BlockScannerFetcher interface {
+	// FetchMemPool scan the mempool
 	FetchMemPool(height int64) (types.TxIn, error)
+	// FetchTxs scan block with the given height
 	FetchTxs(height int64) (types.TxIn, error)
+	// GetHeight return current block height
 	GetHeight() (int64, error)
 }
 
@@ -72,7 +77,7 @@ func NewBlockScanner(cfg config.BlockScannerConfiguration, scannerStorage Scanne
 		errorCounter:    m.GetCounterVec(metrics.CommonBlockScannerError),
 		thorchainBridge: thorchainBridge,
 		chainScanner:    chainScanner,
-		healthy:         true,
+		healthy:         false,
 	}
 
 	scanner.previousBlock, err = scanner.FetchLastHeight()
@@ -92,45 +97,30 @@ func (b *BlockScanner) GetMessages() <-chan int64 {
 // Start block scanner
 func (b *BlockScanner) Start(globalTxsQueue chan types.TxIn) {
 	b.globalTxsQueue = globalTxsQueue
-	b.wg.Add(1)
-	go b.scanBlocks()
-}
-
-// scanBlocks
-func (b *BlockScanner) scanBlocks() {
-	b.logger.Debug().Msg("start to scan blocks")
-	defer b.logger.Debug().Msg("stop scan blocks")
-	defer b.wg.Done()
 	currentPos, err := b.scannerStorage.GetScanPos()
 	if err != nil {
 		b.logger.Error().Err(err).Msgf("fail to get current block scan pos, %s will start from %d", b.cfg.ChainID, b.previousBlock)
 	} else if currentPos > b.previousBlock {
 		b.previousBlock = currentPos
 	}
+	b.wg.Add(2)
+	go b.scanBlocks()
+	go b.scanMempool()
+}
+func (b *BlockScanner) scanMempool() {
+	b.logger.Debug().Msg("start to scan mempool")
+	defer b.logger.Debug().Msg("stop scan mempool")
+	defer b.wg.Done()
 
-	lastMimirCheck := time.Now().Add(-constants.ThorchainBlockTime)
-	haltHeight := int64(0)
-
-	// start up to grab those blocks
 	for {
 		select {
 		case <-b.stopChan:
 			return
 		default:
-			currentBlock := b.previousBlock + 1
-
-			// check if mimir has disabled this chain
-			if time.Now().Sub(lastMimirCheck).Nanoseconds() >= constants.ThorchainBlockTime.Nanoseconds() {
-				haltHeight, err = b.thorchainBridge.GetMimir(fmt.Sprintf("Halt%sChain", b.cfg.ChainID))
-				if err != nil {
-					b.logger.Error().Err(err).Msg("fail to get mimir setting")
-				}
-				lastMimirCheck = time.Now()
-			}
-			if haltHeight > 0 && currentBlock > haltHeight {
-				time.Sleep(constants.ThorchainBlockTime)
-				continue
-			}
+			// mempool scan will continue even the chain get halted , thus the network can still aware of outbound transaction
+			// during chain halt
+			preBlockHeight := atomic.LoadInt64(&b.previousBlock)
+			currentBlock := preBlockHeight + 1
 			txInMemPool, err := b.chainScanner.FetchMemPool(currentBlock)
 			if err != nil {
 				b.logger.Error().Err(err).Msg("fail to fetch MemPool")
@@ -141,8 +131,77 @@ func (b *BlockScanner) scanBlocks() {
 					return
 				case b.globalTxsQueue <- txInMemPool:
 				}
+			} else {
+				// nothing in the mempool or for some chain like BNB & ETH, which doesn't need to scan
+				// mempool , back off here
+				time.Sleep(constants.ThorchainBlockTime)
 			}
-			b.logger.Debug().Int64("block height", currentBlock).Msg("fetch txs")
+		}
+	}
+}
+
+// scanBlocks
+func (b *BlockScanner) scanBlocks() {
+	b.logger.Debug().Msg("start to scan blocks")
+	defer b.logger.Debug().Msg("stop scan blocks")
+	defer b.wg.Done()
+
+	lastMimirCheck := time.Now().Add(-constants.ThorchainBlockTime)
+	var haltHeight, nodeHaltHeight, thorHeight int64
+	var err error
+
+	// start up to grab those blocks
+	for {
+		select {
+		case <-b.stopChan:
+			return
+		default:
+			preBlockHeight := atomic.LoadInt64(&b.previousBlock)
+			currentBlock := preBlockHeight + 1
+			// check if mimir has disabled this chain
+			if time.Since(lastMimirCheck) >= constants.ThorchainBlockTime {
+				haltHeight, err = b.thorchainBridge.GetMimir(fmt.Sprintf("Halt%sChain", b.cfg.ChainID))
+				if err != nil {
+					b.logger.Error().Err(err).Msg("fail to get mimir setting")
+				}
+				globalHaltHeight, err := b.thorchainBridge.GetMimir("HaltChainGlobal")
+				if err != nil {
+					b.logger.Error().Err(err).Msg("fail to get halt chain globalmimir setting")
+				}
+				if globalHaltHeight > haltHeight {
+					haltHeight = globalHaltHeight
+				}
+				nodeHaltHeight, err = b.thorchainBridge.GetMimir("NodePauseChainGlobal")
+				if err != nil {
+					b.logger.Error().Err(err).Msg("fail to get mimir setting")
+				}
+				thorHeight, err = b.thorchainBridge.GetBlockHeight()
+				if err != nil {
+					b.logger.Error().Err(err).Msg("fail to get THORChain block height")
+				}
+				lastMimirCheck = time.Now()
+			}
+
+			if nodeHaltHeight > 0 && thorHeight < nodeHaltHeight {
+				haltHeight = 1
+			}
+			if haltHeight > 0 && thorHeight > haltHeight {
+				// since current chain has been halted , so mark it as not healthy
+				b.healthy = false
+				time.Sleep(constants.ThorchainBlockTime)
+				continue
+			}
+			chainHeight, err := b.chainScanner.GetHeight()
+			if err != nil {
+				b.logger.Error().Err(err).Msg("fail to get chain block height")
+				time.Sleep(b.cfg.BlockHeightDiscoverBackoff)
+				continue
+			}
+			if chainHeight < currentBlock {
+				time.Sleep(b.cfg.BlockHeightDiscoverBackoff)
+				continue
+			}
+			// b.logger.Debug().Int64("block height", currentBlock).Msg("fetch txs")
 			txIn, err := b.chainScanner.FetchTxs(currentBlock)
 			if err != nil {
 				// don't log an error if its because the block doesn't exist yet
@@ -156,10 +215,18 @@ func (b *BlockScanner) scanBlocks() {
 
 			// enable this one , so we could see how far it is behind
 			if currentBlock%100 == 0 {
-				b.logger.Info().Int64("block height", currentBlock).Int("txs", len(txIn.TxArray))
+				b.logger.Info().Int64("block height", currentBlock).Int("txs", len(txIn.TxArray)).Msg("scan block")
 			}
-			b.previousBlock++
-			b.healthy = true
+			atomic.AddInt64(&b.previousBlock, 1)
+			// if current block height is less than 50 blocks behind the tip , then it should catch up soon, should be safe to mark block scanner as healthy
+			// if the block scanner is too far away from tip , should not mark the block scanner as healthy , otherwise it might cause , reschedule and double send
+			if chainHeight-currentBlock <= 50 {
+				b.logger.Debug().Msgf("the gap is %d , set it to healthy", chainHeight-currentBlock)
+				b.healthy = true
+			} else {
+				b.logger.Debug().Msgf("the gap is %d , healthy: %+v", chainHeight-currentBlock, b.healthy)
+			}
+
 			b.metrics.GetCounter(metrics.TotalBlockScanned).Inc()
 			if len(txIn.TxArray) > 0 {
 				select {

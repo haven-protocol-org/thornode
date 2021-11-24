@@ -49,10 +49,6 @@ func (h MimirHandler) validate(ctx cosmos.Context, msg MsgMimir) error {
 }
 
 func (h MimirHandler) validateV1(ctx cosmos.Context, msg MsgMimir) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h MimirHandler) validateCurrent(ctx cosmos.Context, msg MsgMimir) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
@@ -69,19 +65,21 @@ func (h MimirHandler) validateCurrent(ctx cosmos.Context, msg MsgMimir) error {
 func (h MimirHandler) handle(ctx cosmos.Context, msg MsgMimir) error {
 	ctx.Logger().Info("handleMsgMimir request", "key", msg.Key, "value", msg.Value)
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.65.0")) {
+		return h.handleV65(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.handleV1(ctx, msg)
 	}
 	ctx.Logger().Error(errInvalidVersion.Error())
 	return errBadVersion
 }
 
-func (h MimirHandler) handleV1(ctx cosmos.Context, msg MsgMimir) error {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h MimirHandler) handleCurrent(ctx cosmos.Context, msg MsgMimir) error {
-	h.mgr.Keeper().SetMimir(ctx, msg.Key, msg.Value)
+func (h MimirHandler) handleV65(ctx cosmos.Context, msg MsgMimir) error {
+	if msg.Value < 0 {
+		_ = h.mgr.Keeper().DeleteMimir(ctx, msg.Key)
+	} else {
+		h.mgr.Keeper().SetMimir(ctx, msg.Key, msg.Value)
+	}
 
 	ctx.EventManager().EmitEvent(
 		cosmos.NewEvent("set_mimir",

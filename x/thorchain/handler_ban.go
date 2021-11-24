@@ -45,10 +45,6 @@ func (h BanHandler) validate(ctx cosmos.Context, msg MsgBan) error {
 }
 
 func (h BanHandler) validateV1(ctx cosmos.Context, msg MsgBan) error {
-	return h.validateCurrent(ctx, msg)
-}
-
-func (h BanHandler) validateCurrent(ctx cosmos.Context, msg MsgBan) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
@@ -71,10 +67,6 @@ func (h BanHandler) handle(ctx cosmos.Context, msg MsgBan) (*cosmos.Result, erro
 }
 
 func (h BanHandler) handleV1(ctx cosmos.Context, msg MsgBan) (*cosmos.Result, error) {
-	return h.handleCurrent(ctx, msg)
-}
-
-func (h BanHandler) handleCurrent(ctx cosmos.Context, msg MsgBan) (*cosmos.Result, error) {
 	toBan, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.NodeAddress)
 	if err != nil {
 		err = wrapError(ctx, err, "fail to get to ban node account")
@@ -104,7 +96,7 @@ func (h BanHandler) handleCurrent(ctx cosmos.Context, msg MsgBan) (*cosmos.Resul
 		return nil, err
 	}
 
-	active, err := h.mgr.Keeper().ListActiveNodeAccounts(ctx)
+	active, err := h.mgr.Keeper().ListActiveValidators(ctx)
 	if err != nil {
 		err = wrapError(ctx, err, "fail to get list of active node accounts")
 		return nil, err

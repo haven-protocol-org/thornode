@@ -185,7 +185,7 @@ func (s *Signer) signTransactions() {
 }
 
 func (s *Signer) runWithContext(ctx context.Context, fn func() error) error {
-	ch := make(chan error)
+	ch := make(chan error, 1)
 	go func() {
 		ch <- fn()
 	}()
@@ -231,8 +231,7 @@ func (s *Signer) processTransactions() {
 					}
 					cancel()
 					// We have a successful broadcast! Remove the item from our store
-					item.Status = TxSpent
-					if err := s.storage.Set(item); err != nil {
+					if err := s.storage.Remove(item); err != nil {
 						s.logger.Error().Err(err).Msg("fail to update tx out store item")
 					}
 				}
@@ -242,7 +241,7 @@ func (s *Signer) processTransactions() {
 	wg.Wait()
 }
 
-// processTxnOut processes inbound TxOuts and save them to storage
+// processTxnOut processes outbound TxOuts and save them to storage
 func (s *Signer) processTxnOut(ch <-chan types.TxOut, idx int) {
 	s.logger.Info().Int("idx", idx).Msg("start to process tx out")
 	defer s.logger.Info().Int("idx", idx).Msg("stop to process tx out")
@@ -256,9 +255,10 @@ func (s *Signer) processTxnOut(ch <-chan types.TxOut, idx int) {
 				return
 			}
 			s.logger.Info().Msgf("Received a TxOut Array of %v from the Thorchain", txOut)
-			items := make([]TxOutStoreItem, len(txOut.TxArray))
+			items := make([]TxOutStoreItem, 0, len(txOut.TxArray))
+
 			for i, tx := range txOut.TxArray {
-				items[i] = NewTxOutStoreItem(txOut.Height, tx.TxOutItem(), int64(i))
+				items = append(items, NewTxOutStoreItem(txOut.Height, tx.TxOutItem(), int64(i)))
 			}
 			if err := s.storage.Batch(items); err != nil {
 				s.logger.Error().Err(err).Msg("fail to save tx out items to storage")
@@ -324,6 +324,7 @@ func (s *Signer) processKeygen(ch <-chan ttypes.KeygenBlock) {
 					s.errCounter.WithLabelValues("fail_to_broadcast_keygen", "").Inc()
 					s.logger.Error().Err(err).Msg("fail to broadcast keygen")
 				}
+
 			}
 		}
 	}
@@ -404,7 +405,7 @@ func (s *Signer) signAndBroadcast(item TxOutStoreItem) error {
 	// scenario, the network could broadcast a transaction several times,
 	// bleeding funds.
 	if !chain.IsBlockScannerHealthy() {
-		return fmt.Errorf("The block scanner for chain %s is unhealthy, not signing transactions due to it", chain.GetChain())
+		return fmt.Errorf("the block scanner for chain %s is unhealthy, not signing transactions due to it", chain.GetChain())
 	}
 
 	// Check if we're sending all funds back , given we don't have memo in txoutitem anymore, so it rely on the coins field to be empty
@@ -497,7 +498,8 @@ func (s *Signer) handleYggReturn(height int64, tx types.TxOutItem) (types.TxOutI
 			tx.Coins = append(tx.Coins, common.NewCoin(asset, amount))
 		}
 	}
-
+	// Yggdrasil return should pay whatever gas is necessary
+	tx.MaxGas = common.Gas{}
 	return tx, nil
 }
 
