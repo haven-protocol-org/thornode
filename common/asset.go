@@ -24,6 +24,8 @@ var (
 	DOGEAsset = Asset{Chain: DOGEChain, Symbol: "DOGE", Ticker: "DOGE", Synth: false}
 	// ETHAsset ETH
 	ETHAsset = Asset{Chain: ETHChain, Symbol: "ETH", Ticker: "ETH", Synth: false}
+	// XHVAsset XHV
+	XHVAsset = Asset{Chain: XHVChain, Symbol: "XHV", Ticker: "XHV", Synth: false}
 	// Rune67CAsset RUNE on Binance test net
 	Rune67CAsset = Asset{Chain: BNBChain, Symbol: "RUNE-67C", Ticker: "RUNE", Synth: false} // testnet asset on binance ganges
 	// RuneB1AAsset RUNE on Binance main net

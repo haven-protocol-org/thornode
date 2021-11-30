@@ -27,6 +27,11 @@ DOGE_START_BLOCK_HEIGHT="${DOGE_START_BLOCK_HEIGHT:=0}"
 BCH_HOST="${BCH_HOST:=bitcoin-cash-regtest:18443}"
 BCH_START_BLOCK_HEIGHT="${BCH_START_BLOCK_HEIGHT:=0}"
 
+# Haven chain config
+XHV_HOST="${XHV_HOST:=http://127.0.0.1:27750}"
+XHV_WALLET_HOST="${XHV_WALLET_HOST:=http://127.0.0.1:12345}"
+XHV_START_BLOCK_HEIGHT="${XHV_START_BLOCK_HEIGHT:=0}"
+
 DB_PATH="${DB_PATH:=/var/data}"
 CHAIN_API="${CHAIN_API:=127.0.0.1:1317}"
 CHAIN_RPC="${CHAIN_RPC:=127.0.0.1:26657}"
@@ -209,6 +214,29 @@ echo "{
           \"http_request_write_timeout\": \"30s\",
           \"max_http_request_retry\": 10,
           \"start_block_height\": $ETH_START_BLOCK_HEIGHT,
+          \"db_path\": \"$OBSERVER_PATH\"
+        }
+      },
+      {
+        \"chain_id\": \"XHV\",
+        \"rpc_host\": \"$XHV_HOST\",
+        \"wallet_rpc_host\": \"$XHV_WALLET_HOST\",
+        \"username\": \"$RPC_USER\",
+        \"password\": \"$RPC_PASSWD\",
+        \"http_post_mode\": 1,
+        \"disable_tls\": 1,
+        \"block_scanner\": {
+          \"rpc_host\": \"$XHV_HOST\",
+          \"enforce_block_height\": false,
+          \"block_scan_processors\": 1,
+          \"block_height_discover_back_off\": \"$BLOCK_SCANNER_BACKOFF\",
+          \"block_retry_interval\": \"10s\",
+          \"chain_id\": \"ETH\",
+          \"http_request_timeout\": \"30s\",
+          \"http_request_read_timeout\": \"30s\",
+          \"http_request_write_timeout\": \"30s\",
+          \"max_http_request_retry\": 10,
+          \"start_block_height\": $XHV_START_BLOCK_HEIGHT,
           \"db_path\": \"$OBSERVER_PATH\"
         }
       }
