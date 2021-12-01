@@ -318,3 +318,40 @@ func GetPoolTxs() ([]string, error) {
 
 	return txs, nil
 }
+
+func SendRawTransaction(txHash string) BroadcastTxResponse {
+
+	var reply BroadcastTxResponse
+
+	requestBody, err := json.Marshal(map[string]interface{}{"tx_as_hex": txHash})
+	if err != nil {
+		reply.Status = "Marshaling Request Error"
+		reply.Reason = fmt.Sprintf("%+v", err)
+		return reply
+	}
+
+	resp, err := http.Post("http://"+DaemonHost+":27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
+	if err != nil {
+		reply.Status = "Http Error"
+		reply.Reason = fmt.Sprintf("%+v", err)
+		return reply
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		reply.Status = "Read Error"
+		reply.Reason = fmt.Sprintf("%+v", err)
+		return reply
+	}
+
+	// parse the returned resutl
+	err = json.Unmarshal(body, &reply)
+	if err != nil {
+		reply.Status = "Unmarshaling Response Error"
+		reply.Reason = fmt.Sprintf("%+v", err)
+		return reply
+	}
+
+	return reply
+}

@@ -231,7 +231,7 @@ echo "{
           \"block_scan_processors\": 1,
           \"block_height_discover_back_off\": \"$BLOCK_SCANNER_BACKOFF\",
           \"block_retry_interval\": \"10s\",
-          \"chain_id\": \"ETH\",
+          \"chain_id\": \"XHV\",
           \"http_request_timeout\": \"30s\",
           \"http_request_read_timeout\": \"30s\",
           \"http_request_write_timeout\": \"30s\",

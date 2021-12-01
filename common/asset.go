@@ -26,6 +26,24 @@ var (
 	ETHAsset = Asset{Chain: ETHChain, Symbol: "ETH", Ticker: "ETH", Synth: false}
 	// XHVAsset XHV
 	XHVAsset = Asset{Chain: XHVChain, Symbol: "XHV", Ticker: "XHV", Synth: false}
+	// XUSDAsset XHV
+	XUSDAsset = Asset{Chain: XHVChain, Symbol: "XUSD", Ticker: "XUSD", Synth: false}
+	// XBTCAsset XHV
+	XBTCAsset = Asset{Chain: XHVChain, Symbol: "XBTC", Ticker: "XBTC", Synth: false}
+	// XEURAsset XHV
+	XEURAsset = Asset{Chain: XHVChain, Symbol: "XEUR", Ticker: "XEUR", Synth: false}
+	// XGBPAsset XHV
+	XGBPAsset = Asset{Chain: XHVChain, Symbol: "XGBP", Ticker: "XGBP", Synth: false}
+	// XCHFAsset XHV
+	XCHFAsset = Asset{Chain: XHVChain, Symbol: "XCHF", Ticker: "XCHF", Synth: false}
+	// XAUDAsset XHV
+	XAUDAsset = Asset{Chain: XHVChain, Symbol: "XAUD", Ticker: "XAUD", Synth: false}
+	// XAUAsset XHV
+	XAUAsset = Asset{Chain: XHVChain, Symbol: "XAU", Ticker: "XAU", Synth: false}
+	// XAGAsset XHV
+	XAGAsset = Asset{Chain: XHVChain, Symbol: "XAG", Ticker: "XAG", Synth: false}
+	// XCNYAsset XHV
+	XCNYAsset = Asset{Chain: XHVChain, Symbol: "XCNY", Ticker: "XCNY", Synth: false}
 	// Rune67CAsset RUNE on Binance test net
 	Rune67CAsset = Asset{Chain: BNBChain, Symbol: "RUNE-67C", Ticker: "RUNE", Synth: false} // testnet asset on binance ganges
 	// RuneB1AAsset RUNE on Binance main net

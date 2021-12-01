@@ -260,13 +260,28 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 		return acct, fmt.Errorf("fail to login to wallet: %w", err)
 	}
 
-	// get the spendable balance
-	resp, err := c.client.GetBalance(&wallet.RequestGetBalance{
-		AccountIndex: 0,
-		AssetType:    "XHV", // TODO: loop through all asset types and return them all
-	})
-	if err != nil {
-		return acct, fmt.Errorf("fail to get the balance: %w", err)
+	// get the spendable balance of each asset
+	assets := [10]string{"XHV", "XUSD", "XBTC", "XEUR", "XGBP", "XCHF", "XAUD", "XAU", "XAG", "XCNY"}
+	var coins []common.Coin
+	for _, asset := range assets {
+		resp, err := c.client.GetBalance(&wallet.RequestGetBalance{
+			AccountIndex: 0,
+			AssetType:    asset,
+		})
+		if err != nil {
+			return acct, fmt.Errorf("fail to get the balance: %w", err)
+		}
+		if resp.UnlockedBalance != 0 {
+			var assetNotaion string = "XHV." + asset
+			if asset != "XHV" {
+				assetNotaion += "-" + asset
+			}
+			a, err := common.NewAsset(assetNotaion)
+			if err != nil {
+				return acct, fmt.Errorf("fail tconstruct asset: %w", err)
+			}
+			coins = append(coins, common.NewCoin(a, cosmos.NewUint(uint64(resp.UnlockedBalance))))
+		}
 	}
 
 	// close the wallet
@@ -278,10 +293,7 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 	}
 
 	// return a new Account with the total amount spendable.
-	return common.NewAccount(0, 0,
-		common.Coins{
-			common.NewCoin(common.XHVAsset, cosmos.NewUint(uint64(resp.UnlockedBalance))),
-		}, false), nil
+	return common.NewAccount(0, 0, coins, false), nil
 }
 
 func (c *Client) getCoinbaseValue(blockHeight int64) (int64, error) {
@@ -811,6 +823,7 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 	var txVout = TxVout{}
 
 	// generate the shared secrets for both ygg and asgard
+	// TODO: get the asgrad vaults and go through each
 	sharedSecretYgg, err := crypto.GenerateKeyDerivation(txPubKey, &c.ksWrapper.privViewKey)
 	if err != nil {
 		return txVout, fmt.Errorf("Error Creating Shared Secret: %w\n", err)
@@ -969,7 +982,7 @@ func (c *Client) getMemPool(height int64) (types.TxIn, error) {
 		}
 		txIn.TxArray = append(txIn.TxArray, txInItem)
 	}
-	// txIn.Count = strconv.Itoa(len(txIn.TxArray))
+	txIn.Count = strconv.Itoa(len(txIn.TxArray))
 	return txIn, nil
 }
 
@@ -1041,6 +1054,11 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		if err != nil {
 			return nil, fmt.Errorf("fail to make a outgoing transaction: %w", err)
 		}
+
+		// logout the wallet
+		if err = c.client.CloseWallet(); err != nil {
+			return nil, fmt.Errorf("fail to close the wallet: %w", err)
+		}
 	} else {
 		// tss sign
 		// tx, err := json.Marshal(t)
@@ -1080,24 +1098,42 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 
 	// get the hex of tx to send the daemon
 	txHex := hex.EncodeToString(payload)
-
 	if len(txHex) == 64 {
 		// this is a tx proof coming from TSS signing instead of tx itself, so return itself directly
 		c.logger.Info().Msgf("Recieved a TSS tx subnistion. Tx must be already submitted. TxKey + TxID: %s", txHex)
 		return txHex, nil
 	}
 
-	// broadcast tx
-	// resp := SendRawTransaction(txHex)
-	// if resp.Status != "OK" {
-	// 	// TODO: this is a fake reason text. Find the original and replace this.
-	// 	if resp.Reason == "TX is alread in the chain" {
-	// 		return "", nil
-	// 	}
-	// 	return "", fmt.Errorf("fail to broadcast transaction to chain: %s", resp.Reason)
-	// }
+	// get the block meta
+	height, err := GetHeight()
+	if err != nil {
+		return "", fmt.Errorf("fail to get block height: %w", err)
+	}
+	bm, err := c.blockMetaAccessor.GetBlockMeta(height)
+	if err != nil {
+		c.logger.Err(err).Msgf("fail to get blockmeta for heigth: %d", height)
+	}
+	if bm == nil {
+		bm = NewBlockMeta("", height, "")
+	}
+	defer func() {
+		if err := c.blockMetaAccessor.SaveBlockMeta(height, bm); err != nil {
+			c.logger.Err(err).Msg("fail to save block metadata")
+		}
+	}()
 
-	c.logger.Info().Msgf("Succesfuuly submitted transaction to haven daemon hash: %s", c.lastSignedTxHash)
+	// broadcast tx
+	resp := SendRawTransaction(txHex)
+	if resp.Status != "OK" {
+		return "", fmt.Errorf("fail to broadcast transaction to chain: %s", resp.Reason)
+	}
+
+	// save tx id to block meta in case we need to errata later
+	bm.AddSelfTransaction(c.lastSignedTxHash)
+	c.logger.Info().Str("hash", c.lastSignedTxHash).Msg("broadcast to XHV chain successfully")
+	if err := c.signerCacheManager.SetSigned(txOut.CacheHash(), c.lastSignedTxHash); err != nil {
+		c.logger.Err(err).Msgf("fail to mark tx out item (%+v) as signed", txOut)
+	}
 	return c.lastSignedTxHash, nil
 }
 
