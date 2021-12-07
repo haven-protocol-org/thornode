@@ -33,14 +33,16 @@ type PubKeyValidator interface {
 	RegisterCallback(callback OnNewPubKey)
 	GetContracts(chain common.Chain) []common.Address
 	GetContract(chain common.Chain, pk common.PubKey) common.Address
+	GetCnData(chain common.Chain, pubKey common.PubKey) string
 }
 
 // pubKeyInfo is a struct to store pubkey information  in memory
 type pubKeyInfo struct {
-	PubKey      common.PubKey
-	Contracts   map[common.Chain]common.Address
-	Signer      bool
-	NodeAccount bool
+	PubKey         common.PubKey
+	Contracts      map[common.Chain]common.Address
+	Signer         bool
+	NodeAccount    bool
+	CryptonoteData string
 }
 
 // PubKeyManager manager an always up to date pubkeys , which implement PubKeyValidator interface
@@ -81,7 +83,7 @@ func (pkm *PubKeyManager) Start() error {
 	}
 
 	// get smart contract address from THORNode , and update it's internal
-	pkm.updateContractAddresses(pubkeys)
+	pkm.updateContractAddressesAndCnDta(pubkeys)
 	go pkm.updatePubKeys()
 	return nil
 }
@@ -93,13 +95,14 @@ func (pkm *PubKeyManager) Stop() error {
 	return nil
 }
 
-func (pkm *PubKeyManager) updateContractAddresses(pairs []thorclient.PubKeyContractAddressPair) {
+func (pkm *PubKeyManager) updateContractAddressesAndCnDta(pairs []thorclient.PubKeyContractAddressPair) {
 	pkm.rwMutex.Lock()
 	defer pkm.rwMutex.Unlock()
 	for _, pair := range pairs {
 		for idx, item := range pkm.pubkeys {
 			if item.PubKey == pair.PubKey {
 				pkm.pubkeys[idx].Contracts = pair.Contracts
+				pkm.pubkeys[idx].CryptonoteData = pair.CryptonoteData
 			}
 		}
 	}
@@ -175,10 +178,11 @@ func (pkm *PubKeyManager) AddPubKey(pk common.PubKey, signer bool) {
 	} else {
 		// pubkey doesn't exist yet, append it...
 		pkm.pubkeys = append(pkm.pubkeys, pubKeyInfo{
-			PubKey:      pk,
-			Signer:      signer,
-			NodeAccount: false,
-			Contracts:   map[common.Chain]common.Address{},
+			PubKey:         pk,
+			Signer:         signer,
+			NodeAccount:    false,
+			Contracts:      map[common.Chain]common.Address{},
+			CryptonoteData: "",
 		})
 		pkm.fireCallback(pk)
 	}
@@ -199,10 +203,11 @@ func (pkm *PubKeyManager) AddNodePubKey(pk common.PubKey) {
 
 	if !pkm.hasPubKeyNoLock(pk) {
 		pkm.pubkeys = append(pkm.pubkeys, pubKeyInfo{
-			PubKey:      pk,
-			Signer:      true,
-			NodeAccount: true,
-			Contracts:   map[common.Chain]common.Address{},
+			PubKey:         pk,
+			Signer:         true,
+			NodeAccount:    true,
+			Contracts:      map[common.Chain]common.Address{},
+			CryptonoteData: "",
 		})
 		// a new pubkey get added , fire callback
 		pkm.fireCallback(pk)
@@ -240,7 +245,7 @@ func (pkm *PubKeyManager) fetchPubKeys() {
 		pkm.AddPubKey(pk.PubKey, false)
 		pubkeys = append(pubkeys, pk.PubKey)
 	}
-	pkm.updateContractAddresses(addressPairs)
+	pkm.updateContractAddressesAndCnDta(addressPairs)
 	vaults, err := pkm.bridge.GetAsgards()
 	if err != nil {
 		return
@@ -298,7 +303,13 @@ func (pkm *PubKeyManager) IsValidPoolAddress(addr string, chain common.Chain) (b
 	defer pkm.rwMutex.RUnlock()
 
 	for _, pk := range pkm.pubkeys {
-		ok, cpi := matchAddress(addr, chain, pk.PubKey)
+		var ok bool
+		var cpi common.ChainPoolInfo
+		if chain == common.XHVChain {
+			ok, cpi = matchAddress(addr, chain, common.PubKey(pk.CryptonoteData))
+		} else {
+			ok, cpi = matchAddress(addr, chain, pk.PubKey)
+		}
 		if ok {
 			return ok, cpi
 		}
@@ -353,6 +364,24 @@ func (pkm *PubKeyManager) GetContract(chain common.Chain, pubKey common.PubKey) 
 			continue
 		}
 		result = pk.Contracts[chain]
+	}
+	return result
+}
+
+// GetCnData return the cryptonote data that match the given chain and pubkey
+func (pkm *PubKeyManager) GetCnData(chain common.Chain, pubKey common.PubKey) string {
+	pkm.rwMutex.RLock()
+	defer pkm.rwMutex.RUnlock()
+	var result string
+	for _, pk := range pkm.pubkeys {
+		if !pk.PubKey.Equals(pubKey) {
+			continue
+		}
+		if len(pk.CryptonoteData) == 0 {
+			continue
+		}
+		result = pk.CryptonoteData
+		break
 	}
 	return result
 }

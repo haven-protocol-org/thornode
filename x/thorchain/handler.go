@@ -71,6 +71,7 @@ func getHandlerMappingV1(mgr Manager) map[string]MsgHandler {
 	m[MsgSetNodeKeys{}.Type()] = NewSetNodeKeysHandler(mgr)
 	m[MsgSetVersion{}.Type()] = NewVersionHandler(mgr)
 	m[MsgSetIPAddress{}.Type()] = NewIPAddressHandler(mgr)
+	m[MsgSetCryptonoteData{}.Type()] = NewCryptonoteDataHandler(mgr)
 
 	// native handlers (non-consensus)
 	m[MsgSend{}.Type()] = NewSendHandler(mgr)
@@ -96,6 +97,7 @@ func getHandlerMappingV63(mgr Manager) map[string]MsgHandler {
 	m[MsgSetNodeKeys{}.Type()] = NewSetNodeKeysHandler(mgr)
 	m[MsgSetVersion{}.Type()] = NewVersionHandler(mgr)
 	m[MsgSetIPAddress{}.Type()] = NewIPAddressHandler(mgr)
+	m[MsgSetCryptonoteData{}.Type()] = NewCryptonoteDataHandler(mgr)
 	m[MsgMimir{}.Type()] = NewMimirHandler(mgr)
 
 	// native handlers (non-consensus)
@@ -127,6 +129,7 @@ func getHandlerMappingV65(mgr Manager) map[string]MsgHandler {
 	m[MsgSetNodeKeys{}.Type()] = NewSetNodeKeysHandler(mgr)
 	m[MsgSetVersion{}.Type()] = NewVersionHandler(mgr)
 	m[MsgSetIPAddress{}.Type()] = NewIPAddressHandler(mgr)
+	m[MsgSetCryptonoteData{}.Type()] = NewCryptonoteDataHandler(mgr)
 	m[MsgNodePauseChain{}.Type()] = NewNodePauseChainHandler(mgr)
 
 	// native handlers (non-consensus)

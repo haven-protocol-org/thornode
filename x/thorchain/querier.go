@@ -168,6 +168,7 @@ func queryVault(ctx cosmos.Context, path []string, mgr *Mgrs) ([]byte, error) {
 		PendingTxBlockHeights: v.PendingTxBlockHeights,
 		Routers:               v.Routers,
 		Addresses:             getVaultChainAddress(ctx, v),
+		CryptonoteData:        v.CryptonoteData,
 	}
 	res, err := json.MarshalIndent(resp, "", "	")
 	if err != nil {
@@ -207,6 +208,7 @@ func queryAsgardVaults(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
 				PendingTxBlockHeights: vault.PendingTxBlockHeights,
 				Routers:               vault.Routers,
 				Addresses:             getVaultChainAddress(ctx, vault),
+				CryptonoteData:        vault.CryptonoteData,
 			})
 		}
 	}
@@ -224,7 +226,13 @@ func getVaultChainAddress(ctx cosmos.Context, vault Vault) []QueryChainAddress {
 	var result []QueryChainAddress
 	allChains := append(vault.GetChains(), common.THORChain)
 	for _, c := range allChains.Distinct() {
-		addr, err := vault.PubKey.GetAddress(c)
+		var addr common.Address
+		var err error
+		if c == common.XHVChain {
+			addr, err = common.PubKey(vault.CryptonoteData).GetAddress(c)
+		} else {
+			addr, err = vault.PubKey.GetAddress(c)
+		}
 		if err != nil {
 			ctx.Logger().Error("fail to get address for %s:%w", c.String(), err)
 			continue
@@ -294,6 +302,7 @@ func queryYggdrasilVaults(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
 			Bond:                  na.Bond,
 			TotalValue:            totalValue,
 			Addresses:             getVaultChainAddress(ctx, vault),
+			CryptonoteData:        vault.CryptonoteData,
 		}
 	}
 
@@ -319,6 +328,9 @@ func queryVaultsPubkeys(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
 			ctx.Logger().Error("fail to unmarshal vault", "error", err)
 			return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
 		}
+
+		// get the cn data
+
 		if vault.IsYggdrasil() {
 			na, err := mgr.Keeper().GetNodeAccountByPubKey(ctx, vault.PubKey)
 			if err != nil {
@@ -327,15 +339,17 @@ func queryVaultsPubkeys(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
 			}
 			if !na.Bond.IsZero() {
 				resp.Yggdrasil = append(resp.Yggdrasil, QueryVaultPubKeyContract{
-					PubKey:  vault.PubKey,
-					Routers: vault.Routers,
+					PubKey:         vault.PubKey,
+					Routers:        vault.Routers,
+					CryptonoteData: vault.CryptonoteData,
 				})
 			}
 		} else if vault.IsAsgard() {
 			if vault.Status == ActiveVault || vault.Status == RetiringVault {
 				resp.Asgard = append(resp.Asgard, QueryVaultPubKeyContract{
-					PubKey:  vault.PubKey,
-					Routers: vault.Routers,
+					PubKey:         vault.PubKey,
+					Routers:        vault.Routers,
+					CryptonoteData: vault.CryptonoteData,
 				})
 			}
 		}

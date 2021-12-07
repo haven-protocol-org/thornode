@@ -98,7 +98,7 @@ init_chain() {
   echo "$SIGNER_PASSWD" | thornode keys list --keyring-backend file
 
   for user in "$@"; do # iterate over our list of comma separated users "alice,jack"
-    thornode add-genesis-account "$user" 100000000rune
+    thornode add-genesis-account "$user" 1000000000000rune
   done
 
   # thornode config chain-id thorchain

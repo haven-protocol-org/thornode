@@ -10,6 +10,7 @@ import (
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/bitcoin"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/bitcoincash"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/ethereum"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/haven"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/litecoin"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
 	"gitlab.com/thorchain/thornode/bifrost/thorclient"
@@ -67,6 +68,13 @@ func LoadChains(thorKeys *thorclient.Keys,
 			}
 			pubKeyValidator.RegisterCallback(ltc.RegisterPublicKey)
 			chains[common.LTCChain] = ltc
+		case common.XHVChain:
+			xhv, err := haven.NewClient(thorKeys, chain, server, thorchainBridge, pubKeyValidator, m)
+			if err != nil {
+				logger.Fatal().Err(err).Str("chain_id", chain.ChainID.String()).Msg("fail to load chain")
+				continue
+			}
+			chains[common.XHVChain] = xhv
 		default:
 			continue
 		}

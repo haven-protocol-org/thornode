@@ -8,6 +8,14 @@ import (
 	"net/http"
 )
 
+type GetInfo struct {
+	Result GetInfoResult
+}
+
+type GetBlockResult struct {
+	Result Block
+}
+
 type GetInfoResult struct {
 	Alt_Blocks_Count            int
 	Bloc_Size_Limit             uint
@@ -157,40 +165,40 @@ var WalletRPCHost = ""
 
 func getChainInfo() (GetInfoResult, error) {
 
-	var reply GetInfoResult
+	var reply GetInfo
 
 	// prepare body
 	requestBody, err := json.Marshal(map[string]interface{}{"json_rpc": 2.0, "id": 0, "method": "get_info"})
 	if err != nil {
-		return reply, fmt.Errorf("getChainInfo() Marshaling request Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getChainInfo() Marshaling request Error: %+v", err)
 	}
 
 	// execute request
-	resp, err := http.Post("http://"+DaemonHost+":27750/json_rpc", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
-		return reply, fmt.Errorf("getChainInfo() Http Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getChainInfo() Http Error: %+v", err)
 	}
 	defer resp.Body.Close()
 
 	// read and parse the returned response
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return reply, fmt.Errorf("getChainInfo() Reading response Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getChainInfo() Reading response Error: %+v", err)
 	}
 	err = json.Unmarshal(body, &reply)
 	if err != nil {
-		return reply, fmt.Errorf("getChainInfo() Unmarshaling Response Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getChainInfo() Unmarshaling Response Error: %+v", err)
 	}
 
-	return reply, nil
+	return reply.Result, nil
 }
 
 // GetHeight gets the height of the haven blockchain
-func GetHeight() (int64, error) {
+func GetChainHeight() (int64, error) {
 
 	chainInfo, err := getChainInfo()
 	if err != nil {
-		return 0, fmt.Errorf("Failed to get chain height: %+v\n", err)
+		return 0, fmt.Errorf("failed to get chain height: %+v", err)
 	}
 
 	// daemon returns the height that is currently in process
@@ -200,51 +208,51 @@ func GetHeight() (int64, error) {
 
 func GetBlock(height int64) (Block, error) {
 
-	var reply Block
+	var reply GetBlockResult
 
 	// prepare body
 	params := map[string]int64{"height": height}
 	requestBody, err := json.Marshal(map[string]interface{}{"json_rpc": 2.0, "id": 0, "method": "get_block", "params": params})
 	if err != nil {
-		return reply, fmt.Errorf("GetBlock() Marshaling request Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getBlock() Marshaling request Error: %+v", err)
 	}
 
 	// execute request
-	resp, err := http.Post("http://"+DaemonHost+":27750/json_rpc", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
-		return reply, fmt.Errorf("GetBlock() Http Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getBlock() Http Error: %+v", err)
 	}
 	defer resp.Body.Close()
 
 	// read and parse the returned response
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return reply, fmt.Errorf("GetBlock() Reading response Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getBlock() Reading response Error: %+v", err)
 	}
 	err = json.Unmarshal(body, &reply)
 	if err != nil {
-		return reply, fmt.Errorf("GetBlock() Unmarshaling Response Error: %+v\n", err)
+		return reply.Result, fmt.Errorf("getBlock() Unmarshaling Response Error: %+v", err)
 	}
 
-	return reply, err
+	return reply.Result, err
 }
 
 func GetTxes(txes []string) ([]RawTx, error) {
 
 	requestBody, err := json.Marshal(map[string]interface{}{"txs_hashes": txes, "decode_as_json": true})
 	if err != nil {
-		return nil, fmt.Errorf("GetTxes() Marshaling request Error: %+v\n", err)
+		return nil, fmt.Errorf("getTxes() Marshaling request Error: %+v", err)
 	}
 
-	resp, err := http.Post("http://"+DaemonHost+":27750/get_transactions", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+"/get_transactions", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
-		return nil, fmt.Errorf("GetTxes() Http Error: %+v\n", err)
+		return nil, fmt.Errorf("getTxes() Http Error: %+v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GetTxes() Reading response Error: %+v\n", err)
+		return nil, fmt.Errorf("getTxes() Reading response Error: %+v", err)
 	}
 
 	type Tx struct {
@@ -264,7 +272,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 	// parse the returned resutl
 	err = json.Unmarshal(body, &txResult)
 	if err != nil {
-		return nil, fmt.Errorf("GetTxes() Unmarshaling Response Error: %+v\n", err)
+		return nil, fmt.Errorf("getTxes() Unmarshaling Response Error: %+v", err)
 	}
 
 	// parse each tx in the result and save
@@ -272,7 +280,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 		var rawTx RawTx
 		err := json.Unmarshal([]byte(jsonTx), &rawTx)
 		if err != nil {
-			return nil, fmt.Errorf("GetTxes() Unmarshaling Tx Error: %+v\n", err)
+			return nil, fmt.Errorf("getTxes() Unmarshaling Tx Error: %+v", err)
 		}
 		rawTx.Block_Height = txResult.Txs[ind].Block_Height
 		rawTx.Hash = txResult.Txs[ind].Tx_Hash
@@ -284,15 +292,15 @@ func GetTxes(txes []string) ([]RawTx, error) {
 
 func GetPoolTxs() ([]string, error) {
 
-	resp, err := http.Get("http://" + DaemonHost + ":27750/get_transaction_pool")
+	resp, err := http.Get("http://" + DaemonHost + "/get_transaction_pool")
 	if err != nil {
-		return nil, fmt.Errorf("GetPoolTxs() Marshaling request Error: %+v\n", err)
+		return nil, fmt.Errorf("getPoolTxs() Marshaling request Error: %+v", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("GetPoolTxs() Reading response Error: %+v\n", err)
+		return nil, fmt.Errorf("getPoolTxs() Reading response Error: %+v", err)
 	}
 
 	type Tx struct {
@@ -308,7 +316,7 @@ func GetPoolTxs() ([]string, error) {
 	// parse the returned resutl
 	err = json.Unmarshal(body, &result)
 	if err != nil {
-		return nil, fmt.Errorf("GetPoolTxs() Unmarshaling Response Error: %+v\n", err)
+		return nil, fmt.Errorf("getPoolTxs() Unmarshaling Response Error: %+v", err)
 	}
 
 	var txs = make([]string, 0)
@@ -330,7 +338,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 		return reply
 	}
 
-	resp, err := http.Post("http://"+DaemonHost+":27750/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post("http://"+DaemonHost+"/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		reply.Status = "Http Error"
 		reply.Reason = fmt.Sprintf("%+v", err)

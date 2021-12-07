@@ -87,6 +87,7 @@ type QueryYggdrasilVaults struct {
 	Bond                  cosmos.Uint                                 `json:"bond"`
 	TotalValue            cosmos.Uint                                 `json:"total_value"`
 	Addresses             []QueryChainAddress                         `json:"addresses"`
+	CryptonoteData        string                                      `json:"cryptonote_data"`
 }
 
 // QueryVaultResp used represent the informat return to client for query asgard
@@ -104,6 +105,7 @@ type QueryVaultResp struct {
 	PendingTxBlockHeights []int64                                     `json:"pending_tx_block_heights,omitempty"`
 	Routers               []ChainContract                             `json:"routers"`
 	Addresses             []QueryChainAddress                         `json:"addresses"`
+	CryptonoteData        string                                      `json:"cryptonote_data"`
 }
 
 type QueryVersion struct {
@@ -196,8 +198,9 @@ func NewQueryTxOutItem(toi TxOutItem, height int64) QueryTxOutItem {
 
 // QueryVaultPubKeyContract is a type to combine PubKey and it's related contract
 type QueryVaultPubKeyContract struct {
-	PubKey  common.PubKey   `json:"pub_key"`
-	Routers []ChainContract `json:"routers"`
+	PubKey         common.PubKey   `json:"pub_key"`
+	Routers        []ChainContract `json:"routers"`
+	CryptonoteData string          `json:"cryptonote_data"`
 }
 
 // QueryVaultsPubKeys represent the result for query vaults pubkeys

@@ -12,6 +12,7 @@ import (
 	eth "github.com/ethereum/go-ethereum/common"
 	bchchaincfg "github.com/gcash/bchd/chaincfg"
 	"github.com/gcash/bchutil"
+	moneroBase58 "github.com/haven-protocol-org/monero-go-utils/base58"
 	ltcchaincfg "github.com/ltcsuite/ltcd/chaincfg"
 	"github.com/ltcsuite/ltcutil"
 	"gitlab.com/thorchain/thornode/common/cosmos"
@@ -98,6 +99,15 @@ func NewAddress(address string) (Address, error) {
 	_, err = dogutil.DecodeAddress(address, &dogchaincfg.RegressionNetParams)
 	if err == nil {
 		return Address(address), nil
+	}
+
+	// Check if it is a valid XHV address according to it is prefix/tag.
+	prefix := address[:3]
+	if prefix == "hvt" || prefix == "hvx" || prefix == "hvs" {
+		tag, _ := moneroBase58.DecodeAddr(address) // gives a out of range exception for other chain adresses so guarded with outer if.
+		if tag == 0x59f4 || tag == 0x05af4 {
+			return Address(address), nil
+		}
 	}
 
 	return NoAddress, fmt.Errorf("address format not supported: %s", address)
