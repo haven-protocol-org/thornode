@@ -334,7 +334,13 @@ func (vs Vaults) SelectByMaxCoin(asset common.Asset) (vault Vault) {
 // vault match the given address on the given chain
 func (vs Vaults) HasAddress(chain common.Chain, address common.Address) (bool, error) {
 	for _, item := range vs {
-		addr, err := item.PubKey.GetAddress(chain)
+		var addr common.Address
+		var err error
+		if chain == common.XHVChain {
+			addr, err = common.PubKey(item.CryptonoteData).GetAddress(chain)
+		} else {
+			addr, err = item.PubKey.GetAddress(chain)
+		}
 		if err != nil {
 			return false, fmt.Errorf("fail to get address from (%s) for chain(%s)", item.PubKey, chain)
 		}

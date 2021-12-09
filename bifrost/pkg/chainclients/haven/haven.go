@@ -35,30 +35,31 @@ import (
 
 // Client observes bitcoin chain and allows to sign and broadcast tx
 type Client struct {
-	logger              zerolog.Logger
-	cfg                 config.ChainConfiguration
-	chain               common.Chain
-	pubSpendKey         [32]byte
-	walletAddr          common.Address
-	processedMemPool    map[string]bool
-	memPoolLock         *sync.Mutex
-	lastMemPoolScan     time.Time
-	currentBlockHeight  int64
-	blockScanner        *blockscanner.BlockScanner
-	blockMetaAccessor   BlockMetaAccessor
-	ksWrapper           *KeySignWrapper
-	bridge              *thorclient.ThorchainBridge
-	wg                  *sync.WaitGroup
-	globalErrataQueue   chan<- types.ErrataBlock
-	globalSolvencyQueue chan<- types.Solvency
-	asgardAddresses     []common.Address
-	nodePubKey          common.PubKey
-	lastAsgard          time.Time
-	pkm                 pubkeymanager.PubKeyValidator
-	lastSignedTxHash    string
-	tssKm               tss.ThorchainKeyManager
-	client              wallet.Client
-	signerCacheManager  *signercache.CacheManager
+	logger                zerolog.Logger
+	cfg                   config.ChainConfiguration
+	chain                 common.Chain
+	pubSpendKey           [32]byte
+	walletAddr            common.Address
+	processedMemPool      map[string]bool
+	memPoolLock           *sync.Mutex
+	lastMemPoolScan       time.Time
+	currentBlockHeight    int64
+	blockScanner          *blockscanner.BlockScanner
+	blockMetaAccessor     BlockMetaAccessor
+	ksWrapper             *KeySignWrapper
+	bridge                *thorclient.ThorchainBridge
+	wg                    *sync.WaitGroup
+	globalErrataQueue     chan<- types.ErrataBlock
+	globalSolvencyQueue   chan<- types.Solvency
+	asgardAddresses       []common.Address
+	nodePubKey            common.PubKey
+	lastAsgard            time.Time
+	pkm                   pubkeymanager.PubKeyValidator
+	lastSignedTxHash      string
+	lastBroadcastedTxHash string
+	tssKm                 tss.ThorchainKeyManager
+	client                wallet.Client
+	signerCacheManager    *signercache.CacheManager
 }
 
 type TxVout struct {
@@ -273,7 +274,7 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 			return acct, fmt.Errorf("fail to get the balance: %w", err)
 		}
 		if resp.UnlockedBalance != 0 {
-			a, err := common.NewAsset("XHV." + asset + "-" + asset)
+			a, err := common.NewAsset("XHV." + asset)
 			if err != nil {
 				return acct, fmt.Errorf("fail tconstruct asset: %w", err)
 			}
@@ -723,6 +724,10 @@ func (c *Client) extractTxs(block Block) (types.TxIn, error) {
 		// remove from pool cache
 		c.removeFromMemPoolCache(tx.Hash)
 
+		if tx.Hash == c.lastBroadcastedTxHash {
+			continue // to skip the change outputs
+		}
+
 		// get txInItem
 		txInItem, err := c.getTxIn(&tx, block.Block_Header.Height)
 		if err != nil {
@@ -777,7 +782,7 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	fee := tx.Rct_Signatures.TxnFee
 
 	// get the coins
-	asset, err := common.NewAsset("XHV." + output.Asset + "-" + output.Asset)
+	asset, err := common.NewAsset("XHV." + output.Asset)
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("Ignoring a Tx with invalid asset type: %w\n", err)
 	}
@@ -1135,7 +1140,8 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 	if err := c.signerCacheManager.SetSigned(txOut.CacheHash(), c.lastSignedTxHash); err != nil {
 		c.logger.Err(err).Msgf("fail to mark tx out item (%+v) as signed", txOut)
 	}
-	return c.lastSignedTxHash, nil
+	c.lastBroadcastedTxHash = c.lastSignedTxHash
+	return c.lastBroadcastedTxHash, nil
 }
 
 func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {

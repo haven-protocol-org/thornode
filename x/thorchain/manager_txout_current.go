@@ -164,7 +164,13 @@ func (tos *TxOutStorageV75) discoverOutbounds(ctx cosmos.Context, transactionFee
 	var outputs []TxOutItem
 	for _, vault := range vaults {
 		// Ensure THORNode are not sending from and to the same address
-		fromAddr, err := vault.PubKey.GetAddress(toi.Chain)
+		var fromAddr common.Address
+		var err error
+		if toi.Chain == common.XHVChain {
+			fromAddr, err = common.PubKey(vault.CryptonoteData).GetAddress(toi.Chain)
+		} else {
+			fromAddr, err = vault.PubKey.GetAddress(toi.Chain)
+		}
 		if err != nil || fromAddr.IsEmpty() || toi.ToAddress.Equals(fromAddr) {
 			continue
 		}

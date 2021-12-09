@@ -101,16 +101,25 @@ func NewAddress(address string) (Address, error) {
 		return Address(address), nil
 	}
 
-	// Check if it is a valid XHV address according to it is prefix/tag.
-	prefix := address[:3]
-	if prefix == "hvt" || prefix == "hvx" || prefix == "hvs" {
-		tag, _ := moneroBase58.DecodeAddr(address) // gives a out of range exception for other chain adresses so guarded with outer if.
-		if tag == 0x59f4 || tag == 0x05af4 {
-			return Address(address), nil
-		}
+	// Check for xhv chain
+	if isValidXHVAddress(address) {
+		return Address(address), nil
 	}
 
 	return NoAddress, fmt.Errorf("address format not supported: %s", address)
+}
+
+func isValidXHVAddress(addr string) bool {
+	validPrefixes := [9]string{"hvx", "hvi", "hvs", "hvt", "hvti", "hvts", "hvsa", "hvsi", "hvss"}
+	for _, prefix := range validPrefixes {
+		if strings.HasPrefix(addr, prefix) {
+			_, data := moneroBase58.DecodeAddr(addr)
+			if len(data) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsValidBCHAddress determinate whether the address is a valid new BCH address format
@@ -259,13 +268,15 @@ func (addr Address) IsChain(chain Chain) bool {
 			return true
 		}
 		return false
+	case XHVChain:
+		return isValidXHVAddress(string(addr))
 	default:
 		return true // if THORNode don't specifically check a chain yet, assume its ok.
 	}
 }
 
 func (addr Address) GetChain() Chain {
-	for _, chain := range []Chain{ETHChain, BNBChain, THORChain, BTCChain, LTCChain, BCHChain, DOGEChain} {
+	for _, chain := range []Chain{ETHChain, BNBChain, THORChain, BTCChain, LTCChain, BCHChain, DOGEChain, XHVChain} {
 		if addr.IsChain(chain) {
 			return chain
 		}
@@ -369,6 +380,14 @@ func (addr Address) GetNetwork(chain Chain) ChainNetwork {
 		// Check mocknet / regression other formats
 		_, err = dogutil.DecodeAddress(addr.String(), &dogchaincfg.RegressionNetParams)
 		if err == nil {
+			return MockNet
+		}
+	case XHVChain:
+		if strings.HasPrefix(addr.String(), "hvx") || strings.HasPrefix(addr.String(), "hvi") || strings.HasPrefix(addr.String(), "hvs") {
+			return MainNet
+		} else if strings.HasPrefix(addr.String(), "hvsa") || strings.HasPrefix(addr.String(), "hvsi") || strings.HasPrefix(addr.String(), "hvss") {
+			return TestNet
+		} else {
 			return MockNet
 		}
 	}
