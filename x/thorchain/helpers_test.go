@@ -65,7 +65,7 @@ func (k *TestRefundBondKeeper) SetPool(_ cosmos.Context, p Pool) error {
 
 func (k *TestRefundBondKeeper) DeleteVault(_ cosmos.Context, key common.PubKey) error {
 	if k.ygg.PubKey.Equals(key) {
-		k.ygg = NewVault(1, InactiveVault, AsgardVault, GetRandomPubKey(), common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+		k.ygg = NewVault(1, InactiveVault, AsgardVault, GetRandomPubKey(), "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	}
 	return nil
 }
@@ -199,14 +199,14 @@ func (s *HelperSuite) TestRefundBondError(c *C) {
 	c.Assert(refundBond(ctx, tx, cosmos.ZeroUint(), &na, mgr), NotNil)
 
 	// if the vault is not a yggdrasil pool , it should return an error
-	ygg := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, pk, common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	ygg := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, pk, "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	ygg.Coins = common.Coins{}
 	keeper1.ygg = ygg
 	mgr.K = keeper1
 	c.Assert(refundBond(ctx, tx, cosmos.ZeroUint(), &na, mgr), NotNil)
 
 	// fail to get pool should fail
-	ygg = NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, pk, common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	ygg = NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, pk, "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	ygg.Coins = common.Coins{
 		common.NewCoin(common.RuneAsset(), cosmos.NewUint(27*common.One)),
 		common.NewCoin(common.BNBAsset, cosmos.NewUint(27*common.One)),
@@ -235,7 +235,7 @@ func (s *HelperSuite) TestRefundBondHappyPath(c *C) {
 	na.Bond = cosmos.NewUint(12098 * common.One)
 	pk := GetRandomPubKey()
 	na.PubKeySet.Secp256k1 = pk
-	ygg := NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, pk, common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	ygg := NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, pk, "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 
 	ygg.Coins = common.Coins{
 		common.NewCoin(common.RuneAsset(), cosmos.NewUint(3946*common.One)),
@@ -479,7 +479,7 @@ func newAddGasFeeTestHelper(c *C) addGasFeeTestHelper {
 
 	na := GetRandomValidatorNode(NodeActive)
 	c.Assert(mgr.Keeper().SetNodeAccount(ctx, na), IsNil)
-	yggVault := NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, na.PubKeySet.Secp256k1, common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	yggVault := NewVault(common.BlockHeight(ctx), ActiveVault, YggdrasilVault, na.PubKeySet.Secp256k1, "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	c.Assert(mgr.Keeper().SetVault(ctx, yggVault), IsNil)
 	version := GetCurrentVersion()
 	constAccessor := constants.GetConstantValues(version)

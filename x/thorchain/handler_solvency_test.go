@@ -48,7 +48,7 @@ func (s *HandlerSolvencyTestSuite) TestValidate(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(voter.Empty(), Equals, false)
 
-	asgard := NewVault(1024, ActiveVault, AsgardVault, msgSolvency.PubKey, []string{
+	asgard := NewVault(1024, ActiveVault, AsgardVault, msgSolvency.PubKey, "", []string{
 		common.ETHChain.String(),
 		common.BTCChain.String(),
 		common.BNBChain.String(),

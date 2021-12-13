@@ -12,21 +12,22 @@ import (
 )
 
 // NewMsgTssPool is a constructor function for MsgTssPool
-func NewMsgTssPool(pks []string, poolpk common.PubKey, KeygenType KeygenType, height int64, bl Blame, chains []string, signer cosmos.AccAddress, keygenTime int64) (*MsgTssPool, error) {
+func NewMsgTssPool(pks []string, poolpk common.PubKey, cnData string, KeygenType KeygenType, height int64, bl Blame, chains []string, signer cosmos.AccAddress, keygenTime int64) (*MsgTssPool, error) {
 	id, err := getTssID(pks, poolpk, height, bl)
 	if err != nil {
 		return nil, fmt.Errorf("fail to get tss id: %w", err)
 	}
 	return &MsgTssPool{
-		ID:         id,
-		PubKeys:    pks,
-		PoolPubKey: poolpk,
-		Height:     height,
-		KeygenType: KeygenType,
-		Blame:      bl,
-		Chains:     chains,
-		Signer:     signer,
-		KeygenTime: keygenTime,
+		ID:             id,
+		PubKeys:        pks,
+		PoolPubKey:     poolpk,
+		Height:         height,
+		KeygenType:     KeygenType,
+		Blame:          bl,
+		Chains:         chains,
+		Signer:         signer,
+		KeygenTime:     keygenTime,
+		CryptonoteData: cnData,
 	}, nil
 }
 

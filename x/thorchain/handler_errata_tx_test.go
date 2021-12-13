@@ -537,7 +537,7 @@ func (*HandlerErrataTxSuite) TestProcessErrortaOutboundTx(c *C) {
 	c.Assert(result, IsNil)
 
 	// Active Asgard vault, TxInVoter not exist
-	asgardVault := NewVault(1, types.VaultStatus_ActiveVault, AsgardVault, observedPubKey, []string{
+	asgardVault := NewVault(1, types.VaultStatus_ActiveVault, AsgardVault, observedPubKey, "", []string{
 		common.LTCChain.String(),
 		common.BTCChain.String(),
 		common.BNBChain.String(),
@@ -600,7 +600,7 @@ func (*HandlerErrataTxSuite) TestProcessErrortaOutboundTx(c *C) {
 		},
 	}
 	helper.Keeper.SetObservedTxInVoter(ctx, txInVoter)
-	newActiveAsgardVault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	newActiveAsgardVault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.BTCChain.String(),
 		common.LTCChain.String(),
 		common.ETHChain.String(),
@@ -637,13 +637,13 @@ func (*HandlerErrataTxSuite) TestProcessErrortaOutboundTx_EnsureMigrateTxWillSet
 	retiredPubKey := GetRandomPubKey()
 	activePubKey := GetRandomPubKey()
 	// inactive vault, TxInVoter not exist
-	inactiveVault := NewVault(1, types.VaultStatus_InactiveVault, AsgardVault, retiredPubKey, []string{
+	inactiveVault := NewVault(1, types.VaultStatus_InactiveVault, AsgardVault, retiredPubKey, "", []string{
 		common.LTCChain.String(),
 		common.BTCChain.String(),
 		common.BNBChain.String(),
 	}, []ChainContract{})
 
-	activeVault := NewVault(1, types.VaultStatus_ActiveVault, AsgardVault, activePubKey, []string{
+	activeVault := NewVault(1, types.VaultStatus_ActiveVault, AsgardVault, activePubKey, "", []string{
 		common.LTCChain.String(),
 		common.BTCChain.String(),
 		common.BNBChain.String(),

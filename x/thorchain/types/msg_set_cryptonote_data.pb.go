@@ -25,7 +25,7 @@ var _ = math.Inf
 const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 type MsgSetCryptonoteData struct {
-	CryptonoteData string                                        `protobuf:"bytes,1,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
+	CryptonoteData string                                        `protobuf:"bytes,1,opt,name=cryptonote_data,json=string cryptonote_data =,proto3" json:"string cryptonote_data =,omitempty"`
 	Signer         github_com_cosmos_cosmos_sdk_types.AccAddress `protobuf:"bytes,2,opt,name=signer,proto3,casttype=github.com/cosmos/cosmos-sdk/types.AccAddress" json:"signer,omitempty"`
 }
 

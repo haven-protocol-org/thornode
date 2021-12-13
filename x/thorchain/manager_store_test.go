@@ -33,7 +33,7 @@ func (s *StoreManagerTestSuite) TestMigrateStoreV58(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	pubKey, err := common.NewPubKey("tthorpub1addwnpepqg65km6vfflrlymsjhrnmn4w58d2d36h977pcu3aqp6dxee2yf88yg0z3v4")
 	c.Assert(err, IsNil)
-	retiredVault := NewVault(1024, types.VaultStatus_InactiveVault, AsgardVault, pubKey, []string{
+	retiredVault := NewVault(1024, types.VaultStatus_InactiveVault, AsgardVault, pubKey, "", []string{
 		common.BTCChain.String(),
 		common.BNBChain.String(),
 		common.ETHChain.String(),
@@ -44,7 +44,7 @@ func (s *StoreManagerTestSuite) TestMigrateStoreV58(c *C) {
 
 	retiringPubKey, err := common.NewPubKey("tthorpub1addwnpepqfz98sx54jpv3f95qfg39zkx500avc6tr0d8ww0lv283yu3ucgq3g9y9njj")
 	c.Assert(err, IsNil)
-	retiringVault := NewVault(1024, types.VaultStatus_RetiringVault, AsgardVault, retiringPubKey, []string{
+	retiringVault := NewVault(1024, types.VaultStatus_RetiringVault, AsgardVault, retiringPubKey, "", []string{
 		common.BTCChain.String(),
 		common.BNBChain.String(),
 		common.ETHChain.String(),
@@ -92,7 +92,7 @@ func (s *StoreManagerTestSuite) TestMigrateStoreV58(c *C) {
 func (s *StoreManagerTestSuite) TestMigrateStoreV58Refund(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	storeMgr := newStoreMgr(mgr)
-	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.ETHChain.String(),
 	}, nil)
 	mkrToken, err := common.NewAsset("ETH.MKR-0X9F8F72AA9304C8B593D555F12EF6589CC3A579A2")
@@ -192,7 +192,7 @@ func (s *StoreManagerTestSuite) TestMigrateStoreV58Refund(c *C) {
 func (s *StoreManagerTestSuite) TestRemoveTransactions(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	storeMgr := newStoreMgr(mgr)
-	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.ETHChain.String(),
 	}, nil)
 
@@ -309,7 +309,7 @@ func (s *StoreManagerTestSuite) TestRemoveTransactions(c *C) {
 func (s *StoreManagerTestSuite) TestCreditBackToVaultAndPool(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	storeMgr := newStoreMgr(mgr)
-	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	vault := NewVault(1024, ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.ETHChain.String(),
 	}, nil)
 	vault.AddFunds(common.NewCoins(
@@ -431,7 +431,7 @@ func (s *StoreManagerTestSuite) TestCorrectAsgardVaultBalance(c *C) {
 	ctx, mgr := setupManagerForTest(c)
 	SetupConfigForTest()
 	ctx = ctx.WithBlockHeight(1024)
-	vault := NewVault(ctx.BlockHeight(), ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	vault := NewVault(ctx.BlockHeight(), ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.BTCChain.String(),
 		common.ETHChain.String(),
 		common.BNBChain.String(),
@@ -481,7 +481,7 @@ func (s *StoreManagerTestSuite) TestRefundBinanceTx(c *C) {
 	ctx = ctx.WithBlockHeight(1024)
 	pubKey, err := common.NewPubKey(`thorpub1addwnpepqdr4386mnkqyqzpqlydtat0k82f8xvkfwzh4xtjc84cuaqmwx5vjvgnf6v5`)
 	c.Assert(err, IsNil)
-	vault := NewVault(ctx.BlockHeight(), ActiveVault, AsgardVault, pubKey, []string{
+	vault := NewVault(ctx.BlockHeight(), ActiveVault, AsgardVault, pubKey, "", []string{
 		common.BTCChain.String(),
 		common.ETHChain.String(),
 		common.BNBChain.String(),

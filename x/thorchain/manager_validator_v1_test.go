@@ -92,7 +92,7 @@ func (vts *ValidatorMgrV1TestSuite) TestRagnarokForChaosnet(c *C) {
 	// trigger ragnarok
 	ctx = ctx.WithBlockHeight(1024)
 	c.Assert(vMgr.BeginBlock(ctx, constAccessor, nil), IsNil)
-	vault := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, GetRandomPubKey(), common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	vault := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, GetRandomPubKey(), "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	for _, item := range nodeAccounts {
 		vault.Membership = append(vault.Membership, item.PubKeySet.Secp256k1.String())
 	}
@@ -290,7 +290,7 @@ func (vts *ValidatorMgrV1TestSuite) TestGetChangedNodes(c *C) {
 	disabledNode.Bond = cosmos.ZeroUint()
 	c.Assert(k.SetNodeAccount(ctx, disabledNode), IsNil)
 
-	vault := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, GetRandomPubKey(), common.Chains{common.BNBChain}.Strings(), []ChainContract{})
+	vault := NewVault(common.BlockHeight(ctx), ActiveVault, AsgardVault, GetRandomPubKey(), "", common.Chains{common.BNBChain}.Strings(), []ChainContract{})
 	vault.Membership = append(vault.Membership, activeNode.PubKeySet.Secp256k1.String())
 	c.Assert(k.SetVault(ctx, vault), IsNil)
 

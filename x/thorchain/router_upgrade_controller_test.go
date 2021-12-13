@@ -50,14 +50,14 @@ func (s *RouterUpgradeControllerTestSuite) TestUpgradeProcess(c *C) {
 		common.NewCoin(common.BNBAsset, cosmos.NewUint(100*common.One)),
 	}
 
-	activeVault := NewVault(ctx.BlockHeight(), types.VaultStatus_ActiveVault, AsgardVault, GetRandomPubKey(), []string{
+	activeVault := NewVault(ctx.BlockHeight(), types.VaultStatus_ActiveVault, AsgardVault, GetRandomPubKey(), "", []string{
 		common.ETHChain.String(), common.BNBChain.String(), common.BTCChain.String(),
 		common.BCHChain.String(), common.LTCChain.String(),
 	}, []ChainContract{oldChainContract})
 	activeVault.AddFunds(funds)
 	c.Assert(mgr.Keeper().SetVault(ctx, activeVault), IsNil)
 	for _, acct := range activeNodes {
-		yggVault := NewVault(ctx.BlockHeight(), types.VaultStatus_ActiveVault, YggdrasilVault, acct.PubKeySet.Secp256k1, []string{
+		yggVault := NewVault(ctx.BlockHeight(), types.VaultStatus_ActiveVault, YggdrasilVault, acct.PubKeySet.Secp256k1, "", []string{
 			common.ETHChain.String(), common.BNBChain.String(), common.BTCChain.String(),
 			common.BCHChain.String(), common.LTCChain.String(),
 		}, []ChainContract{oldChainContract})

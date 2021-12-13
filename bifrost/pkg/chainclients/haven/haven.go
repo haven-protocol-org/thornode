@@ -1,6 +1,7 @@
 package haven
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,7 @@ import (
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
 
-	// tssp "github.com/akildemir/moneroTss/tss"
+	tssp "github.com/akildemir/moneroTss/tss"
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/haven-protocol-org/go-haven-rpc-client/wallet"
 	"github.com/haven-protocol-org/monero-go-utils/crypto"
@@ -30,7 +31,6 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
 	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
-	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 )
 
 // Client observes bitcoin chain and allows to sign and broadcast tx
@@ -86,23 +86,22 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 
 	// update the ip address for daemon and wallet-rpc
 	// TODO: this is a temp solution for test
-	// DaemonHost = cfg.RPCHos
-	DaemonHost = "10.48.82.144:27750"
-	cfg.WalletRPCHost = "10.48.82.144:6061"
+	DaemonHost = cfg.RPCHost
+	// DaemonHost = "10.48.82.144:27750"
+	// cfg.WalletRPCHost = "10.48.82.144:6061"
 
 	// create the wallet rpc client
 	client := wallet.New(wallet.Config{
-		Address: fmt.Sprintf("http://%s/json_rpc", cfg.WalletRPCHost),
+		Address: cfg.WalletRPCHost,
 	})
 
-	tssKm, err := tss.NewKeySign(server, bridge)
+	log.Logger.Info().Msgf("Haven Wallet-Rpc IP address %s", cfg.WalletRPCHost)
+
+	// create haven tss server
+	tssKm, err := tss.NewKeySignMn(server, bridge)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create tss signer: %w", err)
 	}
-	// tssKm, err := tss.NewKeySignMn(server, bridge)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("fail to create tss signer: %w", err)
-	// }
 
 	// Get thor keys
 	thorPriveKey, err := thorKeys.GetPrivateKey()
@@ -193,7 +192,7 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 
 	c.logger.Info().Msgf("local vault Haven address %s", c.walletAddr.String())
 	c.logger.Info().Msgf("Haven Daemon IP address %s", DaemonHost)
-	c.logger.Info().Msgf("Haven Wallet-Rpc IP address %s", WalletRPCHost)
+	c.logger.Info().Msgf("Haven Wallet-Rpc IP address %s", cfg.WalletRPCHost)
 	return c, nil
 }
 
@@ -431,7 +430,6 @@ func (c *Client) getAsgardAddress() ([]common.Address, error) {
 			continue
 		}
 		found := false
-		// TODO: update this for haven
 		for _, item := range c.asgardAddresses {
 			if item.Equals(addr) {
 				found = true
@@ -1067,27 +1065,35 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		}
 	} else {
 		// tss sign
-		// tx, err := json.Marshal(t)
-		// if err != nil {
-		// 	return nil, err
-		// }
-		// encodedTx := base64.StdEncoding.EncodeToString(tx)
-		// txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), c.cfg.WalletRPCHost)
-		// if err != nil {
-		// 	return nil, err
-		// }
+		tx, err := json.Marshal(t)
+		if err != nil {
+			return nil, err
+		}
+		encodedTx := base64.StdEncoding.EncodeToString(tx)
+		txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), c.cfg.WalletRPCHost)
+		if err != nil {
+			return nil, err
+		}
 
 		// at this point we expect RemoteSignMn() to complete tx construction and submit to haven daemon.
 		// But we don't know who signed this tx and whether it is actually correct amount.
 		// so check whether it is or not. If not, send error.
 		// walletClient.CheckTxKry() is the function
-
-		// concatanete and return the txKey + txID
-		// res, err := hex.DecodeString(txKey + txID)
+		// proof, err := c.client.CheckTxKey(&wallet.RequestCheckTxKey{TxID: txID, TxKey: txKey, Address: dst.Address})
 		// if err != nil {
 		// 	return nil, err
 		// }
-		// return res, nil
+
+		// if !proof.InPool || proof.Confirmations == 0 || proof.Received != amount {
+		// 	return nil, fmt.Errorf("failed to verify the outgoig haven tx from asgard vault")
+		// }
+
+		// concatanete and return the txKey + txID
+		res, err := hex.DecodeString(txKey + txID)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
 
 	// TODO: if we create multiple transactions we will have multiple Tx_Blobs. What should we do in that case. Concatanete them?
