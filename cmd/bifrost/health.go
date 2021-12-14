@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/akildemir/go-tss/tss"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gitlab.com/thorchain/tss/go-tss/tss"
 )
 
 // HealthServer to provide something for health check and also p2pid

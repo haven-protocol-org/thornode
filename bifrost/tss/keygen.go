@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/akildemir/go-tss/keygen"
+	"github.com/akildemir/go-tss/tss"
 	"github.com/blang/semver"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gitlab.com/thorchain/tss/go-tss/keygen"
-	"gitlab.com/thorchain/tss/go-tss/tss"
 
 	"gitlab.com/thorchain/thornode/bifrost/thorclient"
 	"gitlab.com/thorchain/thornode/common"

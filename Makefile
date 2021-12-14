@@ -100,7 +100,7 @@ extract: tools
 
 # updates our tss dependency
 tss:
-	go get gitlab.com/thorchain/tss/go-tss
+	go get github.com/akildemir/go-tss
 
 export:
 	thord export

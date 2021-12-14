@@ -1,8 +1,8 @@
 package chainclients
 
 import (
+	"github.com/akildemir/go-tss/tss"
 	"github.com/rs/zerolog/log"
-	"gitlab.com/thorchain/tss/go-tss/tss"
 
 	mnTss "github.com/akildemir/moneroTss/tss"
 	"gitlab.com/thorchain/thornode/bifrost/config"

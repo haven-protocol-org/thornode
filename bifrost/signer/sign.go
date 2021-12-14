@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
+	tssp "github.com/akildemir/go-tss/tss"
 	mnTssp "github.com/akildemir/moneroTss/tss"
 	moneroCryptoBase58 "github.com/haven-protocol-org/monero-go-utils/base58"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 
 	"gitlab.com/thorchain/thornode/bifrost/blockscanner"
 	"gitlab.com/thorchain/thornode/bifrost/config"

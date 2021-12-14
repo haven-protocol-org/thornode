@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	tssp "github.com/akildemir/go-tss/tss"
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -22,7 +23,6 @@ import (
 	"gitlab.com/thorchain/bifrost/txscript"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	mem "gitlab.com/thorchain/thornode/x/thorchain/memo"
-	tssp "gitlab.com/thorchain/tss/go-tss/tss"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 

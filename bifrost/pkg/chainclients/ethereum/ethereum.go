@@ -22,7 +22,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 
-	tssp "gitlab.com/thorchain/tss/go-tss/tss"
+	tssp "github.com/akildemir/go-tss/tss"
 
 	"gitlab.com/thorchain/thornode/bifrost/blockscanner"
 	"gitlab.com/thorchain/thornode/bifrost/config"

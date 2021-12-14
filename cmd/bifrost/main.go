@@ -21,8 +21,8 @@ import (
 	"github.com/rs/zerolog/log"
 	flag "github.com/spf13/pflag"
 
-	"gitlab.com/thorchain/tss/go-tss/common"
-	"gitlab.com/thorchain/tss/go-tss/tss"
+	"github.com/akildemir/go-tss/common"
+	"github.com/akildemir/go-tss/tss"
 
 	"gitlab.com/thorchain/thornode/app"
 	"gitlab.com/thorchain/thornode/bifrost/config"
@@ -40,8 +40,8 @@ import (
 	moneroP2P "github.com/akildemir/moneroTss/p2p"
 	mnTss "github.com/akildemir/moneroTss/tss"
 
-	"gitlab.com/thorchain/tss/go-tss/p2p"
-	"gitlab.com/thorchain/tss/go-tss/storage"
+	"github.com/akildemir/go-tss/p2p"
+	"github.com/akildemir/go-tss/storage"
 )
 
 // THORNode define version / revision here , so THORNode could inject the version from CI pipeline if THORNode want to

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/akildemir/go-tss/keysign"
+	"github.com/akildemir/go-tss/tss"
 	mnTssKeysign "github.com/akildemir/moneroTss/monero_multi_sig/keysign"
 	mnTss "github.com/akildemir/moneroTss/tss"
 	"github.com/blang/semver"
@@ -25,8 +27,6 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 	"gitlab.com/thorchain/thornode/constants"
 	"gitlab.com/thorchain/thornode/x/thorchain/types"
-	"gitlab.com/thorchain/tss/go-tss/keysign"
-	"gitlab.com/thorchain/tss/go-tss/tss"
 )
 
 const (
