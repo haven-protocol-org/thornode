@@ -78,6 +78,8 @@ github.com/akildemir/moneroTss v0.0.0-20211214105004-9cb8c74242bf h1:zUgu+K9wyub
 github.com/akildemir/moneroTss v0.0.0-20211214105004-9cb8c74242bf/go.mod h1:UQNDad7Ux0xMnkOlmzYf8EQbkSnMmJNHcBoyPo4dKA8=
 github.com/akildemir/moneroTss v0.0.0-20211214123021-7504cb0919d1 h1:O1Xru/1qVLOvR1Ivtx7zymHuvCe2/OfUPYlx/qGp7Aw=
 github.com/akildemir/moneroTss v0.0.0-20211214123021-7504cb0919d1/go.mod h1:UQNDad7Ux0xMnkOlmzYf8EQbkSnMmJNHcBoyPo4dKA8=
+github.com/akildemir/moneroTss v0.0.0-20211215111526-7f832b7c4c10 h1:3xeOxQg/Wyla6tUZnKtOFMjTsbBDXo+MMRc+7UpGW0o=
+github.com/akildemir/moneroTss v0.0.0-20211215111526-7f832b7c4c10/go.mod h1:J9agjfepUxgzs44KtKramAJDL6BtpZWs5KAhIGGQXtY=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/template v0.0.0-20190718012654-fb15b899a751/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=

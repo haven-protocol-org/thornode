@@ -13,7 +13,7 @@ services:
       LTC_HOST: ${LTC_HOST:-localhost:38443}
       ETH_HOST: ${ETH_HOST:-http://localhost:8545}
       XHV_HOST: ${XHV_HOST:-http://localhost:27750}
-      XHV_WALLET_HOST: ${XHV_HOST:-http://localhost:6061/json_rpc}
+      XHV_WALLET_HOST: ${XHV_WALLET_HOST:-http://localhost:6061/json_rpc}
       CONTRACT: ${CONTRACT:-0xE65e9d372F8cAcc7b6dfcd4af6507851Ed31bb44}
       TSS_HOST: localhost
   thornode:

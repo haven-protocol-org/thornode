@@ -24,7 +24,7 @@ services:
       LTC_HOST: ${LTC_HOST:-litecoin-regtest:38443}
       ETH_HOST: ${ETH_HOST:-http://ethereum-localnet:8545}
       XHV_HOST: ${XHV_HOST:-http://localhost:27750}
-      XHV_WALLET_HOST: ${XHV_HOST:-http://localhost:6061/json_rpc}
+      XHV_WALLET_HOST: ${XHV_WALLET_HOST:-http://localhost:6061/json_rpc}
       CHAIN_ID: ${CHAIN_ID:-thorchain}
     entrypoint:
       /docker/scripts/bifrost.sh
