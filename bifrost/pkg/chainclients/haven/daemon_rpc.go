@@ -174,7 +174,7 @@ func getChainInfo() (GetInfoResult, error) {
 	}
 
 	// execute request
-	resp, err := http.Post("http://"+DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return reply.Result, fmt.Errorf("getChainInfo() Http Error: %+v", err)
 	}
@@ -218,7 +218,7 @@ func GetBlock(height int64) (Block, error) {
 	}
 
 	// execute request
-	resp, err := http.Post("http://"+DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(DaemonHost+"/json_rpc", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return reply.Result, fmt.Errorf("getBlock() Http Error: %+v", err)
 	}
@@ -244,7 +244,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 		return nil, fmt.Errorf("getTxes() Marshaling request Error: %+v", err)
 	}
 
-	resp, err := http.Post("http://"+DaemonHost+"/get_transactions", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(DaemonHost+"/get_transactions", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		return nil, fmt.Errorf("getTxes() Http Error: %+v", err)
 	}
@@ -292,7 +292,7 @@ func GetTxes(txes []string) ([]RawTx, error) {
 
 func GetPoolTxs() ([]string, error) {
 
-	resp, err := http.Get("http://" + DaemonHost + "/get_transaction_pool")
+	resp, err := http.Get(DaemonHost + "/get_transaction_pool")
 	if err != nil {
 		return nil, fmt.Errorf("getPoolTxs() Marshaling request Error: %+v", err)
 	}
@@ -338,7 +338,7 @@ func SendRawTransaction(txHash string) BroadcastTxResponse {
 		return reply
 	}
 
-	resp, err := http.Post("http://"+DaemonHost+"/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
+	resp, err := http.Post(DaemonHost+"/sendrawtransaction", "application/json", bytes.NewBuffer(requestBody))
 	if err != nil {
 		reply.Status = "Http Error"
 		reply.Reason = fmt.Sprintf("%+v", err)
