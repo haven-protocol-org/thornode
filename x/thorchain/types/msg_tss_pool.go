@@ -113,6 +113,10 @@ func (m *MsgTssPool) ValidateBasic() error {
 	if _, err := common.NewPubKey(m.PoolPubKey.String()); err != nil {
 		return cosmos.ErrUnknownRequest(err.Error())
 	}
+	// ensure that cn data is either empty or 128 charecter
+	if len(m.CryptonoteData) != 0 && len(m.CryptonoteData) != 128 { // 64 byte is 128 charecter as a hex string
+		return cosmos.ErrUnknownRequest("Cryptonote data must be either empty or 128 charecter hex string (64byte)")
+	}
 	chains := m.GetChains()
 	if len(chains) != len(m.Chains) {
 		return cosmos.ErrUnknownRequest("One or more chains were not valid")

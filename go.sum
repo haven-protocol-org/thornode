@@ -19,6 +19,10 @@ cloud.google.com/go/storage v1.0.0/go.mod h1:IhtSnM/ZTZV8YYJWCY8RULGVqBDmpoyjwiy
 cloud.google.com/go/storage v1.5.0/go.mod h1:tpKbwo567HUNpVclU5sGELwQWBDZ8gh0ZeosJ0Rtdos=
 collectd.org v0.3.0/go.mod h1:A/8DzQBkF6abtvrT2j/AU/4tiBgJWYyh0y/oB/4MlWE=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
+github.com/akildemir/moneroTss v0.0.0-20220116133227-bd4f3bd1214f h1:0ki5aLw7jhCjQDfQB5YocdR0br0av8zS0YcUf7ut834=
+github.com/akildemir/moneroTss v0.0.0-20220116133227-bd4f3bd1214f/go.mod h1:J9agjfepUxgzs44KtKramAJDL6BtpZWs5KAhIGGQXtY=
+github.com/akildemir/go-tss v0.0.0-20220116130855-cfb3aeaebaba h1:7OCCbdTtsVfpp16b0Evk01Kf+7fOK+GpC8vVHLRTt2I=
+github.com/akildemir/go-tss v0.0.0-20220116130855-cfb3aeaebaba/go.mod h1:KLY44wX4XxZXDb6WbuiV8g992qa5V6361tj8pAEapDI=
 github.com/99designs/keyring v1.1.6 h1:kVDC2uCgVwecxCk+9zoCt2uEL6dt+dfVzMvGgnVcIuM=
 github.com/99designs/keyring v1.1.6/go.mod h1:16e0ds7LGQQcT59QqkTg72Hh5ShM51Byv5PEmW6uoRU=
 github.com/AndreasBriese/bbloom v0.0.0-20180913140656-343706a395b7/go.mod h1:bOvUY6CB00SOBii9/FifXqc0awNKxLFCL/+pkDPuyl8=

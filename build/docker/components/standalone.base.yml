@@ -30,6 +30,7 @@ services:
       CHAIN_ID: ${CHAIN_ID:-thorchain}
     ports:
       - "6040:6040"
+      - "5030:5030"
     entrypoint:
       /docker/scripts/bifrost.sh
     volumes:

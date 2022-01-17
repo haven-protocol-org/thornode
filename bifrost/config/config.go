@@ -61,6 +61,7 @@ type TSSConfiguration struct {
 	Rendezvous     string   `json:"rendezvous" mapstructure:"rendezvous"`
 	P2PPort        int      `json:"p2p_port" mapstructure:"p2p_port"`
 	InfoAddress    string   `json:"info_address" mapstructure:"info_address"`
+	InfoAddressMn  string   `json:"info_address_mn" mapstructure:"info_address_mn"`
 	ExternalIP     string   `json:"external_ip" mapstructure:"external_ip"`
 }
 

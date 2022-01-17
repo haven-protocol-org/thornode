@@ -39,6 +39,7 @@ import (
 	mnTssCommon "github.com/akildemir/moneroTss/common"
 	moneroP2P "github.com/akildemir/moneroTss/p2p"
 	mnTss "github.com/akildemir/moneroTss/tss"
+	"github.com/akildemir/moneroTss/conversion"
 
 	"github.com/akildemir/go-tss/p2p"
 	"github.com/akildemir/go-tss/storage"
@@ -144,9 +145,17 @@ func main() {
 	}
 	comm, err := p2p.NewCommunication(cfg.TSS.Rendezvous, bootstrapPeersfinal, cfg.TSS.P2PPort, cfg.TSS.ExternalIP)
 	if err != nil {
-		log.Fatal().Err(err).Msg("fail to create communication laye")
+		log.Fatal().Err(err).Msg("fail to create communication layer")
+	}
+	priKeyRawBytes, err := conversion.GetPriKeyRawBytes(tmPrivateKey)
+	if err != nil {
+		log.Fatal().Err(err).Msg("fail to get private key")
+	}
+	if err := comm.Start(priKeyRawBytes); nil != err {
+		log.Fatal().Err(err).Msg("fail to start p2p network")
 	}
 
+	// set up TSS signing
 	tssIns, err := tss.NewTss(
 		comm,
 		tmPrivateKey,
@@ -188,11 +197,21 @@ func main() {
 		log.Err(err).Msg("fail to start monero tss instance")
 	}
 
+	// start tss healt server
 	healthServer := NewHealthServer(cfg.TSS.InfoAddress, tssIns)
 	go func() {
 		defer log.Info().Msg("health server exit")
 		if err := healthServer.Start(); err != nil {
 			log.Error().Err(err).Msg("fail to start health server")
+		}
+	}()
+
+	// start monero tss health server
+	healthServerMn := NewMnHealthServer(cfg.TSS.InfoAddressMn, mnTssIns)
+	go func() {
+		defer log.Info().Msg("healthMn server exit")
+		if err := healthServerMn.Start(); err != nil {
+			log.Error().Err(err).Msg("fail to start healthMn server")
 		}
 	}()
 	if len(cfg.Chains) == 0 {
@@ -267,8 +286,12 @@ func main() {
 	}
 	// stop go tss
 	tssIns.Stop()
+	mnTssIns.Stop()
 	if err := healthServer.Stop(); err != nil {
 		log.Fatal().Err(err).Msg("fail to stop health server")
+	}
+	if err := healthServerMn.Stop(); err != nil {
+		log.Fatal().Err(err).Msg("fail to stop healthMn server")
 	}
 }
 

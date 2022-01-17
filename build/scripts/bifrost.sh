@@ -246,7 +246,8 @@ echo "{
         \"rendezvous\": \"asgard\",
         \"external_ip\": \"$EXTERNAL_IP\",
         \"p2p_port\": 5040,
-        \"info_address\": \":6040\"
+        \"info_address\": \":6040\",
+        \"info_address_mn\": \":5030\"
     },
     \"signer\": {
       \"signer_db_path\": \"$SIGNER_PATH\",
