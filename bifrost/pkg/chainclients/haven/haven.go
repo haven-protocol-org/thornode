@@ -1,7 +1,6 @@
 package haven
 
 import (
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -160,7 +159,7 @@ func NewClient(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server 
 		memPoolLock: &sync.Mutex{},
 		wg:          &sync.WaitGroup{},
 		client:      client,
-		// tssKm:            tssKm,
+		tssKm:            tssKm,
 		processedMemPool: make(map[string]bool),
 	}
 
@@ -883,9 +882,11 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 					// check if the provided output commitment mathces with the one we calculated
 					copy(C[:], Craw)
 					if crypto.EqualKeys(C, Ctmp) {
+						// we can ignnore the error because we know cn data is legit at this point.
+						addr, _ := c.getAddrFromCndata(cnDta);
 						// We can just skip the rest of the outputs and return here because we expect we only own 1 output
 						return TxVout{
-							Address: c.walletAddr.String(),
+							Address: addr.String(),
 							Amount:  crypto.H2d(ecdhInfo.Amount),
 							Asset:   assetType,
 						}, nil
@@ -1029,20 +1030,21 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		return nil, fmt.Errorf("Can't sing tx: Haven doesn't support sending multiple asset types in a single transaction!")
 	}
 	amount := tx.Coins[0].Amount.Uint64()
-	// outputAsset := tx.Coins[0].Asset.Symbol.String()
+	outputAsset := tx.Coins[0].Asset.Ticker.String()
 
-	var signedTx *wallet.ResponseTransferSplit
+	var signedTx *wallet.ResponseTransfer
 	dst := wallet.Destination{
 		Amount:  amount,
 		Address: tx.ToAddress.String(),
 	}
-	t := wallet.RequestTransferSplit{
+	t := wallet.RequestTransfer{
 		Destinations:  []*wallet.Destination{&dst},
 		GetTxHex:      true,
-		GetxKeys:      true,
+		GetTxKey:      true,
 		GetTxMetadata: true,
 		RingSize:      11,
 		Memo:          tx.Memo,
+		AssetType: 	   outputAsset,
 	}
 	if vaultAddr.Equals(c.walletAddr) {
 		// we are the one who signing this tx.
@@ -1054,7 +1056,7 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		}
 
 		// sign tx
-		signedTx, err = c.client.TransferSplit(&t)
+		signedTx, err = c.client.Transfer(&t)
 		if err != nil {
 			return nil, fmt.Errorf("fail to make a outgoing transaction: %w", err)
 		}
@@ -1065,28 +1067,17 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		}
 	} else {
 		// tss sign
-		tx, err := json.Marshal(t)
+		msg, err := json.Marshal(t)
 		if err != nil {
 			return nil, err
 		}
-		encodedTx := base64.StdEncoding.EncodeToString(tx)
-		txKey, txID, err := c.tssKm.RemoteSignMn([]byte(encodedTx), c.cfg.WalletRPCHost)
+		txKey, txID, err := c.tssKm.RemoteSignMn(msg, tx.VaultPubKey.String(), c.cfg.WalletRPCHost)
 		if err != nil {
 			return nil, err
 		}
 
 		// at this point we expect RemoteSignMn() to complete tx construction and submit to haven daemon.
-		// But we don't know who signed this tx and whether it is actually correct amount.
-		// so check whether it is or not. If not, send error.
-		// walletClient.CheckTxKry() is the function
-		// proof, err := c.client.CheckTxKey(&wallet.RequestCheckTxKey{TxID: txID, TxKey: txKey, Address: dst.Address})
-		// if err != nil {
-		// 	return nil, err
-		// }
-
-		// if !proof.InPool || proof.Confirmations == 0 || proof.Received != amount {
-		// 	return nil, fmt.Errorf("failed to verify the outgoig haven tx from asgard vault")
-		// }
+		// as well check whether the is legit or not.
 
 		// concatanete and return the txKey + txID
 		res, err := hex.DecodeString(txKey + txID)
@@ -1097,11 +1088,11 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 	}
 
 	// TODO: if we create multiple transactions we will have multiple Tx_Blobs. What should we do in that case. Concatanete them?
-	bytes, err := hex.DecodeString(signedTx.TxBlobList[0])
+	bytes, err := hex.DecodeString(signedTx.TxBlob)
 	if err != nil {
 		return nil, err
 	}
-	c.lastSignedTxHash = signedTx.TxHashList[0]
+	c.lastSignedTxHash = signedTx.TxHash
 	return bytes, nil
 }
 
@@ -1110,7 +1101,7 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 
 	// get the hex of tx to send the daemon
 	txHex := hex.EncodeToString(payload)
-	if len(txHex) == 64 {
+	if len(txHex) == 128 {
 		// this is a tx proof coming from TSS signing instead of tx itself, so return itself directly
 		c.logger.Info().Msgf("Recieved a TSS tx subnistion. Tx must be already submitted. TxKey + TxID: %s", txHex)
 		return txHex, nil
@@ -1164,7 +1155,7 @@ func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
 		select {
 		case c.globalSolvencyQueue <- types.Solvency{
 			Height: bitcoinBlockHeight,
-			Chain:  common.BTCChain,
+			Chain:  common.XHVChain,
 			PubKey: asgard.PubKey,
 			Coins:  acct.Coins,
 		}:

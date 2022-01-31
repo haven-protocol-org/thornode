@@ -12,5 +12,5 @@ type ThorchainKeyManager interface {
 	keys.KeyManager
 	SignWithPool(msg tx.StdSignMsg, poolPubKey common.PubKey) ([]byte, error)
 	RemoteSign(msg []byte, poolPubKey string) ([]byte, []byte, error)
-	RemoteSignMn(msg []byte, rpcAddress string) (string, string, error)
+	RemoteSignMn(msg []byte, poolPubKey string, rpcAddress string) (string, string, error)
 }

@@ -197,13 +197,13 @@ func (s *KeySign) RemoteSign(msg []byte, poolPubKey string) ([]byte, []byte, err
 	}
 }
 
-func (s *KeySign) RemoteSignMn(msg []byte, rpcAddress string) (string, string, error) {
+func (s *KeySign) RemoteSignMn(msg []byte, poolPubKey string, rpcAddress string) (string, string, error) {
 	if len(msg) == 0 {
 		return "", "", nil
 	}
 
 	encodedMsg := base64.StdEncoding.EncodeToString(msg)
-	txKey, txID, err := s.toLocalTSSSignerMn(encodedMsg, rpcAddress)
+	txKey, txID, err := s.toLocalTSSSignerMn(encodedMsg, poolPubKey, rpcAddress)
 	if err != nil {
 		return "", "", fmt.Errorf("fail to moenro tss sign: %w", err)
 	}
@@ -416,14 +416,15 @@ func (s *KeySign) toLocalTSSSigner(poolPubKey string, tasks []*tssKeySignTask) {
 }
 
 // toLocalTSSSigner will send the request to local monero wallet rpc
-func (s *KeySign) toLocalTSSSignerMn(encodedTx string, rpcAddress string) (string, string, error) {
+func (s *KeySign) toLocalTSSSignerMn(encodedTx string, poolPubKey string, rpcAddress string) (string, string, error) {
 	tssMsg := mnTssKeysign.Request{
 		EncodedTx:  encodedTx,
 		RpcAddress: rpcAddress,
+		PoolPubKey: poolPubKey,
 	}
 	currentVersion := s.getVersion()
 	tssMsg.Version = currentVersion.String()
-	s.logger.Debug().Msg("new TSS join party")
+	s.logger.Info().Msgf("new TSS join party with ver %s", currentVersion.String())
 	// get current thorchain block height
 	blockHeight, err := s.bridge.GetBlockHeight()
 	if err != nil {
