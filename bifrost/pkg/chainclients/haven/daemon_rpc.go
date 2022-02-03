@@ -56,6 +56,11 @@ type GetInfoResult struct {
 	Wide_Difficulty             string
 }
 
+type Reward struct {
+	Amount    uint64
+	AssetType string
+}
+
 type BlockHeader struct {
 	Block_Size    int
 	Depth         int
@@ -68,7 +73,7 @@ type BlockHeader struct {
 	Num_txes      int
 	Orphan_status bool
 	Prev_Hash     string
-	Reward        uint64
+	Rewards       []Reward
 	Timestamp     uint64
 }
 
