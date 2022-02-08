@@ -158,6 +158,7 @@ type Memo interface {
 	GetAsset() common.Asset
 	GetAmount() cosmos.Uint
 	GetDestination() common.Address
+	GetSender() common.Address
 	GetSlipLimit() cosmos.Uint
 	GetTxID() common.TxID
 	GetAccAddress() cosmos.AccAddress
@@ -175,6 +176,7 @@ func (m MemoBase) IsType(tx TxType) bool            { return m.TxType.Equals(tx)
 func (m MemoBase) GetAsset() common.Asset           { return m.Asset }
 func (m MemoBase) GetAmount() cosmos.Uint           { return cosmos.ZeroUint() }
 func (m MemoBase) GetDestination() common.Address   { return "" }
+func (m MemoBase) GetSender() common.Address        { return "" }
 func (m MemoBase) GetSlipLimit() cosmos.Uint        { return cosmos.ZeroUint() }
 func (m MemoBase) GetTxID() common.TxID             { return "" }
 func (m MemoBase) GetAccAddress() cosmos.AccAddress { return cosmos.AccAddress{} }

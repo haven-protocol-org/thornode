@@ -15,20 +15,23 @@ type SwapMemo struct {
 	SlipLimit            cosmos.Uint
 	AffiliateAddress     common.Address
 	AffiliateBasisPoints cosmos.Uint
+	Sender               common.Address
 }
 
 func (m SwapMemo) GetDestination() common.Address       { return m.Destination }
+func (m SwapMemo) GetSender() common.Address            { return m.Sender }
 func (m SwapMemo) GetSlipLimit() cosmos.Uint            { return m.SlipLimit }
 func (m SwapMemo) GetAffiliateAddress() common.Address  { return m.AffiliateAddress }
 func (m SwapMemo) GetAffiliateBasisPoints() cosmos.Uint { return m.AffiliateBasisPoints }
 
-func NewSwapMemo(asset common.Asset, dest common.Address, slip cosmos.Uint, affAddr common.Address, affPts cosmos.Uint) SwapMemo {
+func NewSwapMemo(asset common.Asset, dest common.Address, slip cosmos.Uint, affAddr common.Address, affPts cosmos.Uint, sender common.Address) SwapMemo {
 	return SwapMemo{
 		MemoBase:             MemoBase{TxType: TxSwap, Asset: asset},
 		Destination:          dest,
 		SlipLimit:            slip,
 		AffiliateAddress:     affAddr,
 		AffiliateBasisPoints: affPts,
+		Sender:               sender,
 	}
 }
 
@@ -40,6 +43,7 @@ func ParseSwapMemo(ctx cosmos.Context, keeper keeper.Keeper, asset common.Asset,
 	// DESTADDR can be empty , if it is empty , it will swap to the sender address
 	destination := common.NoAddress
 	affAddr := common.NoAddress
+	sender := common.NoAddress
 	affPts := cosmos.ZeroUint()
 	if len(parts) > 2 {
 		if len(parts[2]) > 0 {
@@ -63,20 +67,29 @@ func ParseSwapMemo(ctx cosmos.Context, keeper keeper.Keeper, asset common.Asset,
 		slip = amount
 	}
 
+	// sender address can be empty
+	if len(parts) > 4 && len(parts[4]) > 0 {
+		sender, err = common.NewAddress(parts[4])
+		if err != nil {
+			// user perovided a sender addr but it wasnt valid address
+			return SwapMemo{}, err
+		}
+	}
+
 	if len(parts) > 5 && len(parts[4]) > 0 && len(parts[5]) > 0 {
 		if keeper == nil {
-			affAddr, err = common.NewAddress(parts[4])
+			affAddr, err = common.NewAddress(parts[5])
 		} else {
-			affAddr, err = FetchAddress(ctx, keeper, parts[4], common.THORChain)
+			affAddr, err = FetchAddress(ctx, keeper, parts[5], common.THORChain)
 		}
 		if err != nil {
 			return SwapMemo{}, err
 		}
-		pts, err := strconv.ParseUint(parts[5], 10, 64)
+		pts, err := strconv.ParseUint(parts[6], 10, 64)
 		if err != nil {
 			return SwapMemo{}, err
 		}
 		affPts = cosmos.NewUint(pts)
 	}
-	return NewSwapMemo(asset, destination, slip, affAddr, affPts), nil
+	return NewSwapMemo(asset, destination, slip, affAddr, affPts, sender), nil
 }

@@ -57,8 +57,8 @@ type GetInfoResult struct {
 }
 
 type Reward struct {
-	Amount    uint64
-	AssetType string
+	Amount    uint64 `json:"amount"`
+	AssetType string `json:"asset_type"`
 }
 
 type BlockHeader struct {
@@ -112,39 +112,22 @@ type VoutEntry struct {
 }
 
 type RctSignatures struct {
-	Type                  int
-	TxnFee                uint64
-	TxnFee_Usd            uint64
-	TxnFee_Xasset         uint64
-	TxnOffshoreFee        uint64
-	TxnOffshoreFee_Usd    uint64
-	TxnOffshoreFee_Xasset uint64
-	EcdhInfo              []map[string]string
-	OutPk                 []string
-	OutPk_Usd             []string
-	OutPk_Xasset          []string
+	Type           int
+	TxnFee         uint64
+	TxnOffshoreFee uint64
+	EcdhInfo       []map[string]string
+	OutPk          []string
 }
 
 type RawTx struct {
-	Hash           string
-	Version        int
-	Unlock_Time    int
-	Vin            []VinEntry
-	Vout           []VoutEntry
-	Extra          []byte
-	Rct_Signatures RctSignatures
-	Block_Height   int64
-}
-
-type CreatedTx struct {
-	Amount_List      []uint64
-	Fee_List         []uint64
-	Multisig_Txset   string
-	Tx_Hash_List     []string
-	Tx_Key_List      []string
-	Unsigned_Txset   string
-	Tx_Blob_List     []string
-	Tx_Metadata_List []string
+	Hash                string
+	Version             int
+	Output_Unlock_Times []uint64
+	Vin                 []VinEntry
+	Vout                []VoutEntry
+	Extra               []byte
+	Rct_Signatures      RctSignatures
+	Block_Height        int64
 }
 
 type BroadcastTxResponse struct {

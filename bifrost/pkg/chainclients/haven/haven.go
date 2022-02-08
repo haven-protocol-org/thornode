@@ -66,6 +66,7 @@ type TxVout struct {
 	Address string
 	Amount  uint64
 	Asset   string
+	ind     int
 }
 
 // BlockCacheSize the number of block meta that get store in storage.
@@ -350,7 +351,7 @@ func (c *Client) getTotalTransactionValue(txIn types.TxIn, excludeFrom []common.
 				continue
 			}
 			amount := coin.Amount
-			if !coin.Asset.Equals(common.ETHAsset) {
+			if !coin.Asset.Equals(common.XHVAsset) {
 				var err error
 				amount, err = c.poolMgr.GetValue(coin.Asset, common.XHVAsset, coin.Amount)
 				if err != nil {
@@ -853,12 +854,6 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		// we couldn't decode any output from this tx. Which means we don't own any anyway.
 		return types.TxInItem{}, nil
 	}
-
-	// TODO: sender id only required for adding liquity. Might get it from memo data when required.
-	sender := "hvta8SzCkbTLNFDeJcRL51FrTci7YwGzLGHwJYukhCVAivU43WQVFde9c6n6WmZ8y5fDH3SwajsS5Yy3HUcfFCm63uF1eNspce"
-
-	// TODO: xasset fees can be proportionaly different than regular xhv fees in terms of value does it matter??
-	// get the gas
 	fee := tx.Rct_Signatures.TxnFee
 
 	// get the coins
@@ -871,20 +866,28 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 	}
 
 	// get the memo
-	memo := ""
+	memoStr := ""
 	if val, ok := parsedTxExtra[0x18]; ok {
-		memo = string(val[0])
+		memoStr = string(val[0])
 	} else {
 		return types.TxInItem{}, nil
 	}
 
-	_, err = mem.ParseMemo(memo)
+	// check it is a valid memo
+	memo, err := mem.ParseMemo(memoStr)
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("ignoring a tx with invalid memo: %w", err)
 	}
 
-	if tx.Unlock_Time != 0 {
-		return types.TxInItem{}, fmt.Errorf("ignoring a tx with non-zero unlock time.")
+	// retrive the sender address
+	var sender string
+	if memo.GetType() == mem.TxAdd || memo.GetType() == mem.TxSwap {
+		sender = memo.GetSender().String()
+	}
+
+	// check unlock time is 0(default 10 block)
+	if tx.Output_Unlock_Times[output.ind] != 0 {
+		return types.TxInItem{}, fmt.Errorf("ignoring a tx with non-default unlock time")
 	}
 
 	return types.TxInItem{
@@ -893,9 +896,9 @@ func (c *Client) getTxIn(tx *RawTx, height int64) (types.TxInItem, error) {
 		Sender:      sender,
 		To:          output.Address,
 		Coins:       coins,
-		Memo:        memo,
+		Memo:        memoStr,
 		Gas: common.Gas{
-			common.NewCoin(common.XHVAsset, cosmos.NewUint(fee)),
+			common.NewCoin(asset, cosmos.NewUint(fee)),
 		},
 	}, nil
 }
@@ -978,6 +981,7 @@ func (c *Client) getOutput(tx *RawTx, txPubKey *[32]byte) (TxVout, error) {
 							Address: addr.String(),
 							Amount:  crypto.H2d(ecdhInfo.Amount),
 							Asset:   assetType,
+							ind:     ind,
 						}, nil
 					} else {
 						c.logger.Info().Msgf("Invalid commitment for ouptut = %d  of tx %s skipiing..", ind, tx.Hash)
@@ -1166,7 +1170,7 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		}
 
 		// at this point we expect RemoteSignMn() to complete tx construction and submit to haven daemon.
-		// as well check whether the is legit or not.
+		// as well check whether it is legit or not.
 
 		// concatanete and return the txKey + txID
 		res, err := hex.DecodeString(txKey + txID)
@@ -1305,7 +1309,11 @@ func (c *Client) parseTxExtra(extra []byte) (map[byte][][]byte, error) {
 				return nil, fmt.Errorf("thorchain memo data has insufficient length")
 			}
 			var ba = make([]byte, length)
-			ba = extra[ind+2 : ind+2+length]
+			if length > 127 {
+				ba = extra[ind+3 : ind+3+length]
+			} else {
+				ba = extra[ind+2 : ind+2+length]
+			}
 			parsedTxExtra[0x18] = append(parsedTxExtra[0x18], ba)
 			ind += length
 		}
