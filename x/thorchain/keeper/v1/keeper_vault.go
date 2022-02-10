@@ -113,7 +113,12 @@ func (k KVStore) SortBySecurity(ctx cosmos.Context, vaults Vaults, signingTransP
 			}
 			for _, item := range txOut.TxArray {
 				if item.OutHash.IsEmpty() {
-					toAddress, err := vault.PubKey.GetAddress(item.Coin.Asset.GetChain())
+					var toAddress common.Address
+					if item.Coin.Asset.GetChain() == common.XHVChain {
+						toAddress, err = common.PubKey(vault.CryptonoteData).GetAddress(item.Coin.Asset.GetChain())
+					} else {
+						toAddress, err = vault.PubKey.GetAddress(item.Coin.Asset.GetChain())
+					}
 					if err != nil {
 						ctx.Logger().Error("failed to get address of chain", "error", err)
 						continue

@@ -120,7 +120,13 @@ func (h YggdrasilHandler) handleV1(ctx cosmos.Context, msg MsgYggdrasil) (*cosmo
 				ctx.Logger().Error("fail to get vaults", "error", err)
 			}
 			for _, v := range append(active, retiring...) {
-				addr, err := v.PubKey.GetAddress(msg.Tx.Chain)
+				var addr common.Address
+				var err error
+				if msg.Tx.Chain == common.XHVChain {
+					addr, err = common.PubKey(v.CryptonoteData).GetAddress(msg.Tx.Chain)
+				} else {
+					addr, err = v.PubKey.GetAddress(msg.Tx.Chain)
+				}
 				if err != nil {
 					ctx.Logger().Error("fail to get address from pubkey", "error", err)
 				}
@@ -139,7 +145,20 @@ func (h YggdrasilHandler) handleV1(ctx cosmos.Context, msg MsgYggdrasil) (*cosmo
 		// rotation
 		// this type of tx out is special , because it doesn't have relevant tx
 		// in to trigger it, it is trigger by thorchain itself.
-		fromAddress, _ := tx.VaultPubKey.GetAddress(tx.Chain)
+		var fromAddress common.Address
+		if tx.Chain == common.XHVChain {
+
+			// get the cn data for the vault
+			vault, err := h.mgr.Keeper().GetVault(ctx, tx.VaultPubKey)
+			if err != nil {
+				ctx.Logger().Error("unable to get vault record", "error", err)
+				return nil, cosmos.ErrUnknownRequest(err.Error())
+			}
+
+			fromAddress, _ = common.PubKey(vault.CryptonoteData).GetAddress(tx.Chain)
+		} else {
+			fromAddress, _ = tx.VaultPubKey.GetAddress(tx.Chain)
+		}
 
 		if tx.InHash.Equals(common.BlankTxID) &&
 			tx.OutHash.IsEmpty() &&

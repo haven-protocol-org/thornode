@@ -427,7 +427,12 @@ func queryInboundAddresses(ctx cosmos.Context, path []string, req abci.RequestQu
 		if chain == common.THORChain {
 			continue
 		}
-		vaultAddress, err := vault.PubKey.GetAddress(chain)
+		var vaultAddress common.Address
+		if chain == common.XHVChain {
+			vaultAddress, err = common.PubKey(vault.CryptonoteData).GetAddress(chain)
+		} else {
+			vaultAddress, err = vault.PubKey.GetAddress(chain)
+		}
 		if err != nil {
 			ctx.Logger().Error("fail to get address for chain", "error", err)
 			return nil, fmt.Errorf("fail to get address for chain: %w", err)

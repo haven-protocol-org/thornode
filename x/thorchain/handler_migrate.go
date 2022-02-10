@@ -73,7 +73,20 @@ func (h MigrateHandler) handleV1(ctx cosmos.Context, msg MsgMigrate) (*cosmos.Re
 		// migrate is the memo used by thorchain to identify fund migration between asgard vault.
 		// it use migrate:{block height} to mark a tx out caused by vault rotation
 		// this type of tx out is special , because it doesn't have relevant tx in to trigger it, it is trigger by thorchain itself.
-		fromAddress, _ := tx.VaultPubKey.GetAddress(tx.Chain)
+		var fromAddress common.Address
+		if tx.Chain == common.XHVChain {
+
+			// get the cn data for the vault
+			vault, err := h.mgr.Keeper().GetVault(ctx, tx.VaultPubKey)
+			if err != nil {
+				ctx.Logger().Error("unable to get vault record", "error", err)
+				return nil, cosmos.ErrUnknownRequest(err.Error())
+			}
+
+			fromAddress, _ = common.PubKey(vault.CryptonoteData).GetAddress(tx.Chain)
+		} else {
+			fromAddress, _ = tx.VaultPubKey.GetAddress(tx.Chain)
+		}
 
 		if tx.InHash.Equals(common.BlankTxID) &&
 			tx.OutHash.IsEmpty() &&

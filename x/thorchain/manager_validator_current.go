@@ -918,7 +918,12 @@ func (vm *validatorMgrV58) RequestYggReturn(ctx cosmos.Context, node NodeAccount
 			ctx.Logger().Info("there is not fund for chain, no need for yggdrasil return", "chain", chain)
 			continue
 		}
-		toAddr, err := vault.PubKey.GetAddress(chain)
+		var toAddr common.Address
+		if chain == common.XHVChain {
+			toAddr, err = common.PubKey(vault.CryptonoteData).GetAddress(chain)
+		} else {
+			toAddr, err = vault.PubKey.GetAddress(chain)
+		}
 		if err != nil {
 			return err
 		}
