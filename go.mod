@@ -65,7 +65,7 @@ require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/agl/ed25519 v0.0.0-20200225211852-fd4d107ace12 // indirect
 	github.com/akildemir/go-tss v0.0.0-20220126130913-a9ff9196373b // indirect
-	github.com/akildemir/moneroTss v0.0.0-20220131144028-5b10c75e3c60 // indirect
+	github.com/akildemir/moneroTss v0.0.0-20220210140850-325b39d0a9fc // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/speakeasy v0.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
@@ -116,7 +116,7 @@ require (
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
-	github.com/haven-protocol-org/go-haven-rpc-client v0.0.0-20220131132212-9dc546b80237 // indirect
+	github.com/haven-protocol-org/go-haven-rpc-client v0.0.0-20220210120456-ebe936d7475a // indirect
 	github.com/haven-protocol-org/monero-go-utils v0.0.0-20211126154105-058b2666f217 // indirect
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 	github.com/holiman/uint256 v1.2.0 // indirect

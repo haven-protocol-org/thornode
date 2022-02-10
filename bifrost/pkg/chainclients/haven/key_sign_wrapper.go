@@ -5,32 +5,8 @@ import (
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	moneroCrypto "github.com/haven-protocol-org/monero-go-utils/crypto"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"gitlab.com/thorchain/thornode/bifrost/tss"
 	"gitlab.com/thorchain/thornode/common"
 )
-
-// KeySignWrapper is a wrap of private key and also tss instance
-// it also implement the txscript.Signable interface, and will decide which method to use based on the pubkey
-type KeySignWrapper struct {
-	privViewKey   [32]byte
-	privSpendKey  [32]byte
-	pubKey        common.PubKey
-	tssKeyManager tss.ThorchainKeyManager
-	logger        zerolog.Logger
-}
-
-// NewKeySignWrapper create a new instance of Keysign Wrapper
-func NewKeySignWrapper(privViewKey [32]byte, privSpendKey [32]byte, pubKey common.PubKey, tssKeyManager tss.ThorchainKeyManager) (*KeySignWrapper, error) {
-	return &KeySignWrapper{
-		privViewKey:   privViewKey,
-		privSpendKey:  privSpendKey,
-		pubKey:        pubKey,
-		tssKeyManager: tssKeyManager,
-		logger:        log.Logger.With().Str("module", "keysign_wrapper").Logger(),
-	}, nil
-}
 
 // getHavenPrivateKey contructs a private key from a thorchain private key
 func getHavenPrivateKey(key cryptotypes.PrivKey) ([32]byte, [32]byte) {
@@ -48,7 +24,7 @@ func getHavenPrivateKey(key cryptotypes.PrivKey) ([32]byte, [32]byte) {
 	return secretViewKey, secretSpendKey
 }
 
-func generateWalletAddress(privSpendKey *[32]byte, privViewKey *[32]byte) ([32]byte, common.Address, error) {
+func generateWalletAddress(privSpendKey *[32]byte, privViewKey *[32]byte) (common.Address, error) {
 	// generate pubspendKey
 	var pubSpendKey [32]byte
 	moneroCrypto.PublicFromSecret(&pubSpendKey, privSpendKey)
@@ -58,15 +34,5 @@ func generateWalletAddress(privSpendKey *[32]byte, privViewKey *[32]byte) ([32]b
 	cnData = append(cnData, privViewKey[:]...)
 	cnData = append(cnData, pubSpendKey[:]...)
 	walletAddr, err := common.PubKey(hex.EncodeToString(cnData)).GetAddress(common.XHVChain)
-	return pubSpendKey, walletAddr, err
+	return walletAddr, err
 }
-
-// GetSignable based on the given poolPubKey
-// func (w *KeySignWrapper) Sign(poolPubKey common.PubKey) TssSignable {
-// 	// s, err := NewTssSignable(poolPubKey, w.tssKeyManager, w.keySignPartyMgr)
-// 	// if err != nil {
-// 	// 	w.logger.Err(err).Msg("fail to create tss signable")
-// 	// 	return nil
-// 	// }
-// 	return TssSignable{}
-// }

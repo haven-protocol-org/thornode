@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	btypes "gitlab.com/thorchain/thornode/bifrost/blockscanner/types"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	"gitlab.com/thorchain/thornode/bifrost/pubkeymanager"
+	ttypes "gitlab.com/thorchain/thornode/x/thorchain/types"
 
 	tssp "github.com/akildemir/moneroTss/tss"
 	"github.com/cosmos/cosmos-sdk/crypto/codec"
@@ -36,8 +38,6 @@ import (
 type Client struct {
 	logger                zerolog.Logger
 	cfg                   config.ChainConfiguration
-	chain                 common.Chain
-	pubSpendKey           [32]byte
 	walletAddr            common.Address
 	processedMemPool      map[string]bool
 	memPoolLock           *sync.Mutex
@@ -45,7 +45,6 @@ type Client struct {
 	currentBlockHeight    int64
 	blockScanner          *blockscanner.BlockScanner
 	blockMetaAccessor     BlockMetaAccessor
-	ksWrapper             *KeySignWrapper
 	bridge                *thorclient.ThorchainBridge
 	wg                    *sync.WaitGroup
 	globalErrataQueue     chan<- types.ErrataBlock
@@ -53,11 +52,13 @@ type Client struct {
 	asgardAddresses       []common.Address
 	nodePubKey            common.PubKey
 	lastAsgard            time.Time
+	asgardPassword        string
 	pkm                   pubkeymanager.PubKeyValidator
 	poolMgr               thorclient.PoolManager
 	lastSignedTxHash      string
-	lastBroadcastedTxHash string
-	tssKm                 tss.ThorchainKeyManager
+	consolidateInProgress bool
+	supportedAssets       []string
+	tssKm                 *tss.KeySign
 	client                wallet.Client
 	signerCacheManager    *signercache.CacheManager
 }
@@ -71,14 +72,14 @@ type TxVout struct {
 
 // BlockCacheSize the number of block meta that get store in storage.
 const (
-	BlockCacheSize = 144
-	// MaximumConfirmation = 99999999
+	BlockCacheSize     = 144
 	MaxAsgardAddresses = 100
 	// EstimateAverageTxSize for THORChain the estimate tx size is hard code to 1000 here , as most of time it will spend 1 input, have 3 output
 	// which is average at 250 vbytes , however asgard will consolidate UTXOs , which will take up to 1000 vbytes
-	// EstimateAverageTxSize = 1000
+	EstimateAverageTxSize = 1000
 	// DefaultCoinbaseValue  = 6.25
 	// MaxMempoolScanPerTry  = 500
+	AverageFeeRate  = 661200000 // atomic units
 	maxUTXOsToSpend = 10
 )
 
@@ -92,11 +93,8 @@ func NewClient(
 	poolMgr thorclient.PoolManager,
 	m *metrics.Metrics) (*Client, error) {
 
-	// update the ip address for daemon and wallet-rpc
-	// TODO: this is a temp solution for test
+	// set the daemon address
 	DaemonHost = cfg.RPCHost
-	// DaemonHost = "10.48.82.144:27750"
-	// cfg.WalletRPCHost = "10.48.82.144:6061"
 
 	// create the wallet rpc client
 	client := wallet.New(wallet.Config{
@@ -129,7 +127,7 @@ func NewClient(
 	havenPrivViewKey, havenPrivSpendKey := getHavenPrivateKey(thorPriveKey)
 
 	// generate wallet address
-	pubSpendKey, walletAddr, err := generateWalletAddress(&havenPrivSpendKey, &havenPrivViewKey)
+	walletAddr, err := generateWalletAddress(&havenPrivSpendKey, &havenPrivViewKey)
 	if err != nil {
 		return nil, fmt.Errorf("fail to generatre a haven wallet address: %+v", err)
 	}
@@ -166,12 +164,6 @@ func NewClient(
 		return nil, fmt.Errorf("unexpected error when generating the haven wallet: %s", walletResp.Info)
 	}
 
-	// make a sign wrapper
-	ksWrapper, err := NewKeySignWrapper(havenPrivViewKey, havenPrivSpendKey, thorPubkey, tssKm)
-	if err != nil {
-		return nil, fmt.Errorf("fail to create keysign wrapper: %w", err)
-	}
-
 	if pkm == nil {
 		return nil, errors.New("pubkey manager is nil")
 	}
@@ -182,9 +174,6 @@ func NewClient(
 	c := &Client{
 		logger:           log.Logger.With().Str("module", "haven").Logger(),
 		cfg:              cfg,
-		chain:            cfg.ChainID,
-		pubSpendKey:      pubSpendKey,
-		ksWrapper:        ksWrapper,
 		bridge:           bridge,
 		pkm:              pkm,
 		poolMgr:          poolMgr,
@@ -194,6 +183,8 @@ func NewClient(
 		wg:               &sync.WaitGroup{},
 		client:           client,
 		tssKm:            tssKm,
+		supportedAssets:  []string{"XHV", "XUSD", "XBTC", "XEUR", "XGBP", "XCHF", "XAUD", "XAU", "XAG", "XCNY"},
+		asgardPassword:   hex.EncodeToString(common.CosmosPrivateKeyToTMPrivateKey(thorPriveKey).Bytes()),
 		processedMemPool: make(map[string]bool),
 	}
 
@@ -240,6 +231,9 @@ func (c *Client) Start(globalTxsQueue chan types.TxIn, globalErrataQueue chan ty
 // Stop stops the block scanner
 func (c *Client) Stop() {
 	c.blockScanner.Stop()
+	c.tssKm.Stop()
+	// wait for consolidate utxo to exit
+	c.wg.Wait()
 }
 
 // GetConfig - get the chain configuration
@@ -295,9 +289,8 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 
 	// get the spendable balance of each asset
 	// TODO: Ask for decimal place handling.
-	assets := [10]string{"XHV", "XUSD", "XBTC", "XEUR", "XGBP", "XCHF", "XAUD", "XAU", "XAG", "XCNY"}
 	var coins []common.Coin
-	for _, asset := range assets {
+	for _, asset := range c.supportedAssets {
 		resp, err := c.client.GetBalance(&wallet.RequestGetBalance{
 			AccountIndex: 0,
 			AssetType:    asset,
@@ -611,6 +604,11 @@ func (c *Client) FetchTxs(height int64) (types.TxIn, error) {
 		c.logger.Err(err).Msgf("fail to send solvency info to THORChain")
 	}
 	txIn.Count = strconv.Itoa(len(txIn.TxArray))
+	if !c.consolidateInProgress {
+		// try to consolidate UTXOs
+		c.wg.Add(1)
+		go c.consolidateUTXOs()
+	}
 	return txIn, nil
 }
 
@@ -628,18 +626,7 @@ func (c *Client) canDeleteBlock(blockMeta *BlockMeta) bool {
 }
 
 func (c *Client) sendNetworkFee(height int64) error {
-
-	// TODO: an endpoint to get the AverageTxSize and AverageFeeRate
-	// result, err := c.client.GetBlockStats(height, nil)
-	// if err != nil {
-	// 	return fmt.Errorf("fail to get block stats")
-	// }
-	// // fee rate and tx size should not be 0
-	// if result.AverageFeeRate == 0 || result.AverageTxSize == 0 {
-	// 	return nil
-	// }
-
-	txid, err := c.bridge.PostNetworkFee(height, common.XHVChain, 2000, uint64(155600))
+	txid, err := c.bridge.PostNetworkFee(height, common.XHVChain, uint64(EstimateAverageTxSize), uint64(AverageFeeRate))
 	if err != nil {
 		return fmt.Errorf("fail to post network fee to thornode: %w", err)
 	}
@@ -805,10 +792,6 @@ func (c *Client) extractTxs(block Block) (types.TxIn, error) {
 	for _, tx := range txs {
 		// remove from pool cache
 		c.removeFromMemPoolCache(tx.Hash)
-
-		if tx.Hash == c.lastBroadcastedTxHash {
-			continue // to skip the change outputs
-		}
 
 		// get txInItem
 		txInItem, err := c.getTxIn(&tx, block.Block_Header.Height)
@@ -1125,7 +1108,6 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 	amount := tx.Coins[0].Amount.Uint64()
 	outputAsset := tx.Coins[0].Asset.Ticker.String()
 
-	var signedTx *wallet.ResponseTransfer
 	dst := wallet.Destination{
 		Amount:  amount,
 		Address: tx.ToAddress.String(),
@@ -1149,7 +1131,7 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		}
 
 		// sign tx
-		signedTx, err = c.client.Transfer(&t)
+		signedTx, err := c.client.Transfer(&t)
 		if err != nil {
 			return nil, fmt.Errorf("fail to make a outgoing transaction: %w", err)
 		}
@@ -1158,6 +1140,13 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		if err = c.client.CloseWallet(); err != nil {
 			return nil, fmt.Errorf("fail to close the wallet: %w", err)
 		}
+
+		bytes, err := hex.DecodeString(signedTx.TxBlob)
+		if err != nil {
+			return nil, err
+		}
+		c.lastSignedTxHash = signedTx.TxHash
+		return bytes, nil
 	} else {
 		// tss sign
 		msg, err := json.Marshal(t)
@@ -1173,20 +1162,13 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		// as well check whether it is legit or not.
 
 		// concatanete and return the txKey + txID
+		c.lastSignedTxHash = txID
 		res, err := hex.DecodeString(txKey + txID)
 		if err != nil {
 			return nil, err
 		}
 		return res, nil
 	}
-
-	// TODO: if we create multiple transactions we will have multiple Tx_Blobs. What should we do in that case. Concatanete them?
-	bytes, err := hex.DecodeString(signedTx.TxBlob)
-	if err != nil {
-		return nil, err
-	}
-	c.lastSignedTxHash = signedTx.TxHash
-	return bytes, nil
 }
 
 // BroadcastTx will broadcast the given payload to XHV chain
@@ -1194,7 +1176,7 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 
 	// get the hex of tx to send the daemon
 	txHex := hex.EncodeToString(payload)
-	if len(txHex) == 128 {
+	if txHex[64:] == c.lastSignedTxHash {
 		// this is a tx proof coming from TSS signing instead of tx itself, so return itself directly
 		c.logger.Info().Msgf("Recieved a TSS tx subnistion. Tx must be already submitted. TxKey + TxID: %s", txHex)
 		return txHex, nil
@@ -1230,8 +1212,7 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 	if err := c.signerCacheManager.SetSigned(txOut.CacheHash(), c.lastSignedTxHash); err != nil {
 		c.logger.Err(err).Msgf("fail to mark tx out item (%+v) as signed", txOut)
 	}
-	c.lastBroadcastedTxHash = c.lastSignedTxHash
-	return c.lastBroadcastedTxHash, nil
+	return c.lastSignedTxHash, nil
 }
 
 func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
@@ -1257,6 +1238,171 @@ func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
 		}
 	}
 	return nil
+}
+
+// getUTXOs send a request to wallet-rpc
+func (c *Client) getUTXOs(pkey common.PubKey, assetTye string) ([]wallet.TransferDetail, error) {
+	if c.isYggdrasil(pkey) {
+		err := c.loginToLocalWallet()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// login to asgard wallet
+		err := c.client.OpenWallet(&wallet.RequestOpenWallet{
+			Filename: c.nodePubKey.String() + ".mo",
+			Password: c.asgardPassword,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// get the all non-spent outs
+	res, err := c.client.IncomingTransfers(&wallet.RequestIncomingTransfers{
+		TransferType: "available", // get only unspent outputs
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// filter by asset type and min, Max confiurmations
+	var tds []wallet.TransferDetail
+	for _, td := range res.Transfers {
+		if td.AssetType == assetTye && !td.Frozen && td.Unlocked {
+			tds = append(tds, td)
+		}
+	}
+
+	return tds, nil
+}
+
+// isYggdrasil - when the pubkey and node pubkey is the same that means it is signing from yggdrasil
+func (c *Client) isYggdrasil(key common.PubKey) bool {
+	return key.Equals(c.nodePubKey)
+}
+
+// getAllUtxos go through all the block meta in the local storage, it will spend all UTXOs in  block that might be evicted from local storage soon
+// it also try to spend enough UTXOs that can add up to more than the given total
+func (c *Client) getUtxoToSpend(pubKey common.PubKey) (map[string][]wallet.TransferDetail, error) {
+	var result = make(map[string][]wallet.TransferDetail)
+	for _, asset := range c.supportedAssets {
+
+		utxos, err := c.getUTXOs(pubKey, asset)
+		if err != nil {
+			return nil, fmt.Errorf("fail to get UTXOs: %w", err)
+		}
+
+		// spend UTXO older to younger
+		sort.SliceStable(utxos, func(i, j int) bool {
+			if utxos[i].BlockHeight < utxos[j].BlockHeight {
+				return true
+			} else if utxos[i].BlockHeight > utxos[j].BlockHeight {
+				return false
+			}
+			return utxos[i].GlobalIndex < utxos[j].GlobalIndex
+		})
+		result[asset] = utxos
+	}
+
+	return result, nil
+}
+
+func (c *Client) getMaximumUtxosToSpend() int64 {
+	const mimirMaxUTXOsToSpend = `MaxUTXOsToSpend`
+	utxosToSpend, err := c.bridge.GetMimir(mimirMaxUTXOsToSpend)
+	if err != nil {
+		c.logger.Err(err).Msg("fail to get MaxUTXOsToSpend")
+	}
+	if utxosToSpend <= 0 {
+		utxosToSpend = maxUTXOsToSpend
+	}
+	return utxosToSpend
+}
+
+// consolidateUTXOs only required when there is a new block
+func (c *Client) consolidateUTXOs() {
+	defer func() {
+		c.wg.Done()
+		c.consolidateInProgress = false
+	}()
+	nodeStatus, err := c.bridge.FetchNodeStatus()
+	if err != nil {
+		c.logger.Err(err).Msg("fail to get node status")
+		return
+	}
+	if nodeStatus != ttypes.NodeStatus_Active {
+		c.logger.Info().Msgf("node is not active , doesn't need to consolidate utxos")
+		return
+	}
+	vaults, err := c.bridge.GetAsgards()
+	if err != nil {
+		c.logger.Err(err).Msg("fail to get current asgards")
+		return
+	}
+	utxosToSpend := c.getMaximumUtxosToSpend()
+	for _, vault := range vaults {
+		utxoMap, err := c.getUtxoToSpend(vault.PubKey)
+		if err != nil {
+			c.logger.Err(err).Msg("fail to get utxos to spend")
+			continue
+		}
+
+		for a, utxos := range utxoMap {
+
+			// doesn't have enough UTXOs , don't need to consolidate
+			if int64(len(utxos)) < utxosToSpend {
+				continue
+			}
+			var total uint64 = 0
+			for _, item := range utxos {
+				total += item.Amount
+			}
+			addr, err := common.PubKey(vault.CryptonoteData).GetAddress(common.XHVChain)
+			if err != nil {
+				c.logger.Err(err).Msgf("fail to get XHV address for cn data: %s", vault.CryptonoteData)
+				continue
+			}
+
+			// THORChain usually pay 1.5 of the last observed fee rate
+			feeRate := AverageFeeRate
+
+			asset, err := common.NewAsset("XHV." + a)
+			if err != nil {
+				c.logger.Err(err).Msgf("fail to create the asset: %v", err)
+				continue
+			}
+
+			txOutItem := types.TxOutItem{
+				Chain:       common.BTCChain,
+				ToAddress:   addr,
+				VaultPubKey: vault.PubKey,
+				Coins: common.Coins{
+					common.NewCoin(asset, cosmos.NewUint(uint64(total))),
+				},
+				Memo:    mem.NewConsolidateMemo().String(),
+				MaxGas:  nil,
+				GasRate: int64(feeRate),
+			}
+			height, err := c.bridge.GetBlockHeight()
+			if err != nil {
+				c.logger.Err(err).Msg("fail to get THORChain block height")
+				continue
+			}
+			rawTx, err := c.SignTx(txOutItem, height)
+			if err != nil {
+				c.logger.Err(err).Msg("fail to sign consolidate txout item")
+				continue
+			}
+			txID, err := c.BroadcastTx(txOutItem, rawTx)
+			if err != nil {
+				c.logger.Err(err).Msg("fail to broadcast consolidate tx")
+				continue
+			}
+			c.logger.Info().Msgf("broadcast consolidate tx successfully,hash:%s", txID)
+		}
+
+	}
 }
 
 func (c *Client) parseTxExtra(extra []byte) (map[byte][][]byte, error) {
