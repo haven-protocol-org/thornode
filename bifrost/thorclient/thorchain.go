@@ -49,6 +49,7 @@ const (
 	AsgardVault              = "/thorchain/vaults/asgard"
 	PubKeysEndpoint          = "/thorchain/vaults/pubkeys"
 	ThorchainConstants       = "/thorchain/constants"
+	TxEndPoint               = "/thorchain/tx/%s"
 	RagnarokEndpoint         = "/thorchain/ragnarok"
 	MimirEndpoint            = "/thorchain/mimir"
 	ChainVersionEndpoint     = "/thorchain/version"
@@ -279,6 +280,8 @@ func (b *ThorchainBridge) GetObservationsStdTx(txIns stypes.ObservedTxs) ([]cosm
 			chain = tx.Tx.Coins[0].Asset.Chain
 		}
 
+		// this ObservedPubKey is still cnData for the cryptonote chains. and will ber till txin is in
+		// the thornode and thornode replaces cndata with actual pubkey
 		obAddr, err := tx.ObservedPubKey.GetAddress(chain)
 		if err != nil {
 			return nil, err
@@ -420,6 +423,25 @@ func (b *ThorchainBridge) GetAsgards() (stypes.Vaults, error) {
 		return nil, fmt.Errorf("fail to unmarshal asgard vaults from json: %w", err)
 	}
 	return vaults, nil
+}
+
+// GetAsgards retrieve given tx from thorchain. Returns empty txin item without error if tx was not found.
+func (b *ThorchainBridge) GetTx(txId string) (types.TxInItem, error) {
+	result, s, err := b.getWithPath(fmt.Sprintf(TxEndPoint, txId))
+	if err != nil {
+		return types.TxInItem{}, fmt.Errorf("fail to get tx from thorchain: %w", err)
+	}
+	if s == http.StatusNotFound {
+		return types.TxInItem{}, nil
+	}
+	if s != http.StatusOK {
+		return types.TxInItem{}, fmt.Errorf("http Error: %d", s)
+	}
+	var txIn types.TxInItem
+	if err := json.Unmarshal(result, &txIn); err != nil {
+		return types.TxInItem{}, fmt.Errorf("fail to unmarshal tx from json: %w", err)
+	}
+	return txIn, nil
 }
 
 // GetPubKeys retrieve asgard vaults and yggdrasil vaults , and it's relevant smart contracts

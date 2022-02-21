@@ -228,11 +228,11 @@ func (pubKey PubKey) GetAddress(chain Chain) (Address, error) {
 		var tag uint64
 		switch chainNetwork {
 		case MockNet:
-			// Haven testnet tag
-			tag = 0x59f4
+			// Haven stagenet tag(hvsa)
+			tag = 0x239974
 		case TestNet:
-			// Haven testnet tag
-			tag = 0x59f4
+			// Haven stagenet tag(hvsa)
+			tag = 0x239974
 		case MainNet:
 			// Haven mainnet tag
 			tag = 0x05af4
