@@ -86,10 +86,8 @@ const (
 	// EstimateAverageTxSize for THORChain the estimate tx size is hard code to 1000 here , as most of time it will spend 1 input, have 3 output
 	// which is average at 250 vbytes , however asgard will consolidate UTXOs , which will take up to 1000 vbytes
 	EstimateAverageTxSize = 1000
-	// DefaultCoinbaseValue  = 6.25
-	// MaxMempoolScanPerTry  = 500
-	AverageFeeRate  = 314016568 // atomic units
-	maxUTXOsToSpend = 10
+	AverageFeeRate        = 314016568 // atomic units
+	maxUTXOsToSpend       = 10
 )
 
 // NewClient generates a new Client
@@ -212,7 +210,6 @@ func NewClient(
 func (c *Client) Start(globalTxsQueue chan types.TxIn, globalErrataQueue chan types.ErrataBlock, globalSolvencyQueue chan types.Solvency) {
 	c.globalErrataQueue = globalErrataQueue
 	c.globalSolvencyQueue = globalSolvencyQueue
-	// c.tssKeySigner.Start()
 	c.blockScanner.Start(globalTxsQueue)
 }
 
@@ -245,7 +242,12 @@ func (c *Client) GetHeight() (int64, error) {
 
 // GetAddress return current local haven vault address
 func (c *Client) GetAddress(poolPubKey common.PubKey) string {
-	return c.walletAddr.String()
+	addr, err := c.getAddrFromCndata(c.pkm.GetCnData(common.XHVChain, poolPubKey))
+	if err != nil {
+		c.logger.Error().Err(err).Str("pool_pub_key", poolPubKey.String()).Msg("fail to get pool address")
+		return ""
+	}
+	return addr.String()
 }
 
 // GetAccountByAddress return empty account for now
@@ -261,6 +263,29 @@ func (c *Client) loginToLocalWallet() error {
 	return err
 }
 
+func (c *Client) loginToAsgardWallet() error {
+	err := c.client.OpenWallet(&wallet.RequestOpenWallet{
+		Filename: c.nodePubKey.String() + ".mo",
+		Password: c.asgardPassword,
+	})
+	return err
+}
+
+func (c *Client) loginToWallet(pkey common.PubKey) error {
+	if c.isYggdrasil(pkey) {
+		err := c.loginToLocalWallet()
+		if err != nil {
+			return err
+		}
+	} else {
+		err := c.loginToAsgardWallet()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // GetAccount returns account with balance for an address
 func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 
@@ -270,13 +295,12 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 	}
 
 	//login to wallet
-	err := c.loginToLocalWallet()
+	err := c.loginToWallet(pkey)
 	if err != nil {
 		return acct, fmt.Errorf("fail to login to wallet: %w", err)
 	}
 
 	// get the spendable balance of each asset
-	// TODO: Ask for decimal place handling.
 	var coins []common.Coin
 	for _, asset := range c.supportedAssets {
 		resp, err := c.client.GetBalance(&wallet.RequestGetBalance{
@@ -286,7 +310,7 @@ func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
 		if err != nil {
 			return acct, fmt.Errorf("fail to get the balance: %w", err)
 		}
-		if resp.UnlockedBalance != 0 {
+		if resp.Balance != 0 {
 			a, err := common.NewAsset("XHV." + asset)
 			if err != nil {
 				return acct, fmt.Errorf("fail tconstruct asset: %w", err)
@@ -404,11 +428,7 @@ func (c *Client) GetConfirmationCount(txIn types.TxIn) int64 {
 	}
 	blockHeight := txIn.TxArray[0].BlockHeight
 
-	var confirm int64 = 10
-	reqConfirm, err := c.getBlockRequiredConfirmation(txIn, blockHeight)
-	if reqConfirm > confirm {
-		confirm = reqConfirm
-	}
+	confirm, err := c.getBlockRequiredConfirmation(txIn, blockHeight)
 	c.logger.Info().Msgf("confirmation required: %d", confirm)
 	if err != nil {
 		c.logger.Err(err).Msg("fail to get block confirmation ")
@@ -429,7 +449,6 @@ func (c *Client) ConfirmationCountReady(txIn types.TxIn) bool {
 	}
 	blockHeight := txIn.TxArray[0].BlockHeight
 	confirm := txIn.ConfirmationRequired
-	c.logger.Info().Msgf("confirmation required: %d", confirm)
 	// every tx in txIn already have at least 1 confirmation
 	return (c.currentBlockHeight - blockHeight) >= confirm
 }
@@ -1316,7 +1335,7 @@ func (c *Client) BroadcastTx(txOut types.TxOutItem, payload []byte) (string, err
 	return txHash, nil
 }
 
-func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
+func (c *Client) reportSolvency(blockHeight int64) error {
 	asgardVaults, err := c.bridge.GetAsgards()
 	if err != nil {
 		return fmt.Errorf("fail to get asgards,err: %w", err)
@@ -1329,7 +1348,7 @@ func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
 		}
 		select {
 		case c.globalSolvencyQueue <- types.Solvency{
-			Height: bitcoinBlockHeight,
+			Height: blockHeight,
 			Chain:  common.XHVChain,
 			PubKey: asgard.PubKey,
 			Coins:  acct.Coins,
@@ -1343,20 +1362,10 @@ func (c *Client) reportSolvency(bitcoinBlockHeight int64) error {
 
 // getUTXOs send a request to wallet-rpc
 func (c *Client) getUTXOs(pkey common.PubKey, assetTye string) ([]wallet.TransferDetail, error) {
-	if c.isYggdrasil(pkey) {
-		err := c.loginToLocalWallet()
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// login to asgard wallet
-		err := c.client.OpenWallet(&wallet.RequestOpenWallet{
-			Filename: c.nodePubKey.String() + ".mo",
-			Password: c.asgardPassword,
-		})
-		if err != nil {
-			return nil, err
-		}
+
+	err := c.loginToWallet(pkey)
+	if err != nil {
+		return nil, err
 	}
 
 	// get the all non-spent outs
@@ -1427,9 +1436,6 @@ func (c *Client) consolidateUTXOs() {
 		c.wg.Done()
 		c.consolidateInProgress = false
 	}()
-	// TODO: Isn't it just better to use sweep functions? sweep_all or below?
-	// it will auto spend all unlcoked outputs and wont have change output.
-	// but will lock entire wallet balance for 10 blocks.
 	nodeStatus, err := c.bridge.FetchNodeStatus()
 	if err != nil {
 		c.logger.Err(err).Msg("fail to get node status")

@@ -35,6 +35,7 @@ message Tx {
     repeated Coin coins = 5 [(gogoproto.castrepeated) = "Coins", (gogoproto.nullable) = false];
     repeated Coin gas = 6 [(gogoproto.castrepeated) = "Gas", (gogoproto.nullable) = false];
     string memo = 7;
+    string tx_key = 8;
 }
 
 message Fee {

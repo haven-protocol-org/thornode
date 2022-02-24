@@ -147,6 +147,7 @@ type Tx struct {
 	Coins       Coins   `protobuf:"bytes,5,rep,name=coins,proto3,castrepeated=Coins" json:"coins"`
 	Gas         Gas     `protobuf:"bytes,6,rep,name=gas,proto3,castrepeated=Gas" json:"gas"`
 	Memo        string  `protobuf:"bytes,7,opt,name=memo,proto3" json:"memo,omitempty"`
+	TxKey       string  `protobuf:"bytes,8,opt,name=tx_key,proto3" json:"tx_key,omitempty"`
 }
 
 func (m *Tx) Reset()      { *m = Tx{} }

@@ -24,7 +24,7 @@ type TxIn struct {
 type TxInItem struct {
 	BlockHeight         int64         `json:"block_height"`
 	Tx                  string        `json:"tx"`
-	TxKey               string        `json:"txkey"`
+	TxKey               string        `json:"tx_key"`
 	Memo                string        `json:"memo"`
 	Sender              string        `json:"sender"`
 	To                  string        `json:"to"` // to adddress
