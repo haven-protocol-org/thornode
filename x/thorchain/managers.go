@@ -253,7 +253,7 @@ func (mgr *Mgrs) YggManager() YggManager { return mgr.yggManager }
 // GetKeeper return Keeper
 func GetKeeper(version semver.Version, cdc codec.BinaryMarshaler, coinKeeper bankkeeper.Keeper, accountKeeper authkeeper.AccountKeeper, storeKey cosmos.StoreKey) (keeper.Keeper, error) {
 	if version.GTE(semver.MustParse("0.1.0")) {
-		return kv1.NewKVStore(cdc, coinKeeper, accountKeeper, storeKey), nil
+		return kv1.NewKVStore(cdc, coinKeeper, accountKeeper, storeKey, version), nil
 	}
 	return nil, errInvalidVersion
 }
@@ -261,7 +261,11 @@ func GetKeeper(version semver.Version, cdc codec.BinaryMarshaler, coinKeeper ban
 // GetGasManager return GasManager
 func GetGasManager(version semver.Version, keeper keeper.Keeper) (GasManager, error) {
 	constAcessor := constants.GetConstantValues(version)
-	if version.GTE(semver.MustParse("0.75.0")) {
+	if version.GTE(semver.MustParse("0.81.0")) {
+		return newGasMgrV81(constAcessor, keeper), nil
+	} else if version.GTE(semver.MustParse("0.80.0")) {
+		return newGasMgrV80(constAcessor, keeper), nil
+	} else if version.GTE(semver.MustParse("0.75.0")) {
 		return newGasMgrV75(constAcessor, keeper), nil
 	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return newGasMgrV1(constAcessor, keeper), nil
@@ -280,7 +284,9 @@ func GetEventManager(version semver.Version) (EventManager, error) {
 // GetTxOutStore will return an implementation of the txout store that
 func GetTxOutStore(keeper keeper.Keeper, version semver.Version, eventMgr EventManager, gasManager GasManager) (TxOutStore, error) {
 	constAccessor := constants.GetConstantValues(version)
-	if version.GTE(semver.MustParse("0.75.0")) {
+	if version.GTE(semver.MustParse("0.78.0")) {
+		return newTxOutStorageV78(keeper, constAccessor, eventMgr, gasManager), nil
+	} else if version.GTE(semver.MustParse("0.75.0")) {
 		return newTxOutStorageV75(keeper, constAccessor, eventMgr, gasManager), nil
 	} else if version.GTE(semver.MustParse("0.72.0")) {
 		return newTxOutStorageV72(keeper, constAccessor, eventMgr, gasManager), nil
@@ -316,7 +322,9 @@ func GetTxOutStore(keeper keeper.Keeper, version semver.Version, eventMgr EventM
 
 // GetNetworkManager  retrieve a NetworkManager that is compatible with the given version
 func GetNetworkManager(keeper keeper.Keeper, version semver.Version, txOutStore TxOutStore, eventMgr EventManager) (NetworkManager, error) {
-	if version.GTE(semver.MustParse("0.75.0")) {
+	if version.GTE(semver.MustParse("0.76.0")) {
+		return newNetworkMgrV76(keeper, txOutStore, eventMgr), nil
+	} else if version.GTE(semver.MustParse("0.75.0")) {
 		return newNetworkMgrV75(keeper, txOutStore, eventMgr), nil
 	} else if version.GTE(semver.MustParse("0.69.0")) {
 		return newNetworkMgrV69(keeper, txOutStore, eventMgr), nil
@@ -334,7 +342,13 @@ func GetNetworkManager(keeper keeper.Keeper, version semver.Version, txOutStore 
 
 // GetValidatorManager create a new instance of Validator Manager
 func GetValidatorManager(keeper keeper.Keeper, version semver.Version, vaultMgr NetworkManager, txOutStore TxOutStore, eventMgr EventManager) (ValidatorManager, error) {
-	if version.GTE(semver.MustParse("0.58.0")) {
+	if version.GTE(semver.MustParse("0.80.0")) {
+		return newValidatorMgrV80(keeper, vaultMgr, txOutStore, eventMgr), nil
+	} else if version.GTE(semver.MustParse("0.78.0")) {
+		return newValidatorMgrV78(keeper, vaultMgr, txOutStore, eventMgr), nil
+	} else if version.GTE(semver.MustParse("0.76.0")) {
+		return newValidatorMgrV76(keeper, vaultMgr, txOutStore, eventMgr), nil
+	} else if version.GTE(semver.MustParse("0.58.0")) {
 		return newValidatorMgrV58(keeper, vaultMgr, txOutStore, eventMgr), nil
 	} else if version.GTE(semver.MustParse("0.56.0")) {
 		return newValidatorMgrV56(keeper, vaultMgr, txOutStore, eventMgr), nil
@@ -399,7 +413,9 @@ func GetSlasher(keeper keeper.Keeper, version semver.Version, eventMgr EventMana
 
 // GetYggManager return an implementation of YggManager
 func GetYggManager(keeper keeper.Keeper, version semver.Version) (YggManager, error) {
-	if version.GTE(semver.MustParse("0.65.0")) {
+	if version.GTE(semver.MustParse("0.79.0")) {
+		return newYggMgrV79(keeper), nil
+	} else if version.GTE(semver.MustParse("0.65.0")) {
 		return newYggMgrV65(keeper), nil
 	} else if version.GTE(semver.MustParse("0.63.0")) {
 		return newYggMgrV63(keeper), nil

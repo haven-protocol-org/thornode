@@ -7,6 +7,7 @@ import (
 
 	"gitlab.com/thorchain/thornode/common"
 	"gitlab.com/thorchain/thornode/common/cosmos"
+	"gitlab.com/thorchain/thornode/constants"
 )
 
 // BondHandler a handler to process bond
@@ -47,13 +48,17 @@ func (h BondHandler) Run(ctx cosmos.Context, m cosmos.Msg) (*cosmos.Result, erro
 
 func (h BondHandler) validate(ctx cosmos.Context, msg MsgBond) error {
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.1.0")) {
+	if version.GTE(semver.MustParse("0.80.0")) {
+		return h.validate80(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.78.0")) {
+		return h.validate78(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
 		return h.validateV1(ctx, msg)
 	}
 	return errBadVersion
 }
 
-func (h BondHandler) validateV1(ctx cosmos.Context, msg MsgBond) error {
+func (h BondHandler) validate80(ctx cosmos.Context, msg MsgBond) error {
 	if err := msg.ValidateBasic(); err != nil {
 		return err
 	}
@@ -63,6 +68,29 @@ func (h BondHandler) validateV1(ctx cosmos.Context, msg MsgBond) error {
 	nodeAccount, err := h.mgr.Keeper().GetNodeAccount(ctx, msg.NodeAddress)
 	if err != nil {
 		return ErrInternal(err, fmt.Sprintf("fail to get node account(%s)", msg.NodeAddress))
+	}
+
+	if nodeAccount.Status == NodeReady {
+		return ErrInternal(err, "cannot add bond while node is ready status")
+	}
+
+	if nodeAccount.Status == NodeActive {
+		validatorMaxRewardRatio, err := h.mgr.Keeper().GetMimir(ctx, constants.ValidatorMaxRewardRatio.String())
+		if validatorMaxRewardRatio < 0 || err != nil {
+			validatorMaxRewardRatio = h.mgr.GetConstants().GetInt64Value(constants.ValidatorMaxRewardRatio)
+		}
+
+		if validatorMaxRewardRatio > 1 {
+			retiring, err := h.mgr.Keeper().GetAsgardVaultsByStatus(ctx, RetiringVault)
+			if err != nil {
+				return err
+			}
+
+			if len(retiring) == 0 {
+				return ErrInternal(err, "cannot add bond while the network is not churning")
+			}
+
+		}
 	}
 
 	bond := msg.Bond.Add(nodeAccount.Bond)
@@ -80,7 +108,9 @@ func (h BondHandler) validateV1(ctx cosmos.Context, msg MsgBond) error {
 
 func (h BondHandler) handle(ctx cosmos.Context, msg MsgBond) error {
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.68.0")) {
+	if version.GTE(semver.MustParse("0.81.0")) {
+		return h.handleV81(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.68.0")) {
 		return h.handleV68(ctx, msg)
 	} else if version.GTE(semver.MustParse("0.47.0")) {
 		return h.handleV47(ctx, msg)
@@ -90,7 +120,7 @@ func (h BondHandler) handle(ctx cosmos.Context, msg MsgBond) error {
 	return errBadVersion
 }
 
-func (h BondHandler) handleV68(ctx cosmos.Context, msg MsgBond) error {
+func (h BondHandler) handleV81(ctx cosmos.Context, msg MsgBond) error {
 	// THORNode will not have pub keys at the moment, so have to leave it empty
 	emptyPubKeySet := common.PubKeySet{
 		Secp256k1: common.EmptyPubKey,
@@ -124,6 +154,13 @@ func (h BondHandler) handleV68(ctx cosmos.Context, msg MsgBond) error {
 		}
 		nodeAccount.Bond = common.SafeSub(nodeAccount.Bond, cosmos.NewUint(common.One))
 		msg.Bond = common.SafeSub(msg.Bond, cosmos.NewUint(common.One))
+		tx := common.Tx{}
+		tx.ID = common.BlankTxID
+		tx.ToAddress = common.Address(nodeAccount.String())
+		bondEvent := NewEventBond(cosmos.NewUint(common.One), BondCost, tx)
+		if err := h.mgr.EventMgr().EmitEvent(ctx, bondEvent); err != nil {
+			ctx.Logger().Error("fail to emit bond event", "error", err)
+		}
 	}
 
 	if err := h.mgr.Keeper().SetNodeAccount(ctx, nodeAccount); err != nil {
@@ -132,7 +169,7 @@ func (h BondHandler) handleV68(ctx cosmos.Context, msg MsgBond) error {
 
 	bondEvent := NewEventBond(msg.Bond, BondPaid, msg.TxIn)
 	if err := h.mgr.EventMgr().EmitEvent(ctx, bondEvent); err != nil {
-		return cosmos.Wrapf(errFailSaveEvent, "fail to emit bond event: %w", err)
+		ctx.Logger().Error("fail to emit bond event", "error", err)
 	}
 
 	return nil

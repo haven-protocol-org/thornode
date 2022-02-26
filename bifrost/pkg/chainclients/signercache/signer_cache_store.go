@@ -34,9 +34,11 @@ func (s *CacheStore) SetSigned(hash string) error {
 	s.logger.Debug().Msgf("key:%s set to signed", key)
 	return s.db.Put([]byte(key), []byte{1}, nil)
 }
+
 func (s *CacheStore) getSignedKey(hash string) string {
 	return fmt.Sprintf("%s%s", signedCachePrefix, hash)
 }
+
 func (s *CacheStore) getMapKey(txHash string) string {
 	return fmt.Sprintf("%s%s", txMapPrefix, txHash)
 }
@@ -54,9 +56,11 @@ func (s *CacheStore) RemoveSigned(transactionHash string) error {
 	mapKey := s.getMapKey(transactionHash)
 	value, err := s.db.Get([]byte(mapKey), nil)
 	if err != nil {
-		if !errors.Is(err, leveldb.ErrNotFound) {
-			s.logger.Err(err).Msg("fail to check map key exist")
+		// bifrost didn't sign this tx , so it is fine
+		if errors.Is(err, leveldb.ErrNotFound) {
+			return nil
 		}
+		s.logger.Err(err).Msg("fail to check map key exist")
 		return err
 	}
 	key := s.getSignedKey(string(value))

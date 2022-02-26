@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	tssp "github.com/akildemir/go-tss/tss"
@@ -23,6 +25,7 @@ import (
 	ttypes "gitlab.com/thorchain/binance-sdk/types"
 	"gitlab.com/thorchain/binance-sdk/types/msg"
 	btx "gitlab.com/thorchain/binance-sdk/types/tx"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/runners"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 	"gitlab.com/thorchain/thornode/constants"
 	memo "gitlab.com/thorchain/thornode/x/thorchain/memo"
@@ -40,21 +43,24 @@ import (
 
 // Binance is a structure to sign and broadcast tx to binance chain used by signer mostly
 type Binance struct {
-	logger              zerolog.Logger
-	cfg                 config.ChainConfiguration
-	cdc                 *codec.LegacyAmino
-	chainID             string
-	isTestNet           bool
-	client              *http.Client
-	accts               *BinanceMetaDataStore
-	tssKeyManager       *tss.KeySign
-	localKeyManager     *keyManager
-	thorchainBridge     *thorclient.ThorchainBridge
-	storage             *blockscanner.BlockScannerStorage
-	blockScanner        *blockscanner.BlockScanner
-	bnbScanner          *BinanceBlockScanner
-	globalSolvencyQueue chan stypes.Solvency
-	signerCacheManager  *signercache.CacheManager
+	logger                  zerolog.Logger
+	cfg                     config.ChainConfiguration
+	cdc                     *codec.LegacyAmino
+	chainID                 string
+	isTestNet               bool
+	client                  *http.Client
+	accts                   *BinanceMetaDataStore
+	tssKeyManager           *tss.KeySign
+	localKeyManager         *keyManager
+	thorchainBridge         *thorclient.ThorchainBridge
+	storage                 *blockscanner.BlockScannerStorage
+	blockScanner            *blockscanner.BlockScanner
+	bnbScanner              *BinanceBlockScanner
+	globalSolvencyQueue     chan stypes.Solvency
+	signerCacheManager      *signercache.CacheManager
+	wg                      *sync.WaitGroup
+	stopchan                chan struct{}
+	lastSolvencyCheckHeight int64
 }
 
 // NewBinance create new instance of binance client
@@ -95,6 +101,8 @@ func NewBinance(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server
 		tssKeyManager:   tssKm,
 		localKeyManager: localKm,
 		thorchainBridge: thorchainBridge,
+		stopchan:        make(chan struct{}),
+		wg:              &sync.WaitGroup{},
 	}
 
 	if err := b.checkIsTestNet(); err != nil {
@@ -111,7 +119,7 @@ func NewBinance(thorKeys *thorclient.Keys, cfg config.ChainConfiguration, server
 		return nil, fmt.Errorf("fail to create scan storage: %w", err)
 	}
 
-	b.bnbScanner, err = NewBinanceBlockScanner(b.cfg.BlockScanner, b.storage, b.isTestNet, b.thorchainBridge, m, b.reportSolvency)
+	b.bnbScanner, err = NewBinanceBlockScanner(b.cfg.BlockScanner, b.storage, b.isTestNet, b.thorchainBridge, m, b.ReportSolvency)
 	if err != nil {
 		return nil, fmt.Errorf("fail to create block scanner: %w", err)
 	}
@@ -133,12 +141,16 @@ func (b *Binance) Start(globalTxsQueue chan stypes.TxIn, globalErrataQueue chan 
 	b.globalSolvencyQueue = globalSolvencyQueue
 	b.tssKeyManager.Start()
 	b.blockScanner.Start(globalTxsQueue)
+	b.wg.Add(1)
+	go runners.SolvencyCheckRunner(b.GetChain(), b, b.thorchainBridge, b.stopchan, b.wg)
 }
 
 // Stop Binance chain client
 func (b *Binance) Stop() {
 	b.tssKeyManager.Stop()
 	b.blockScanner.Stop()
+	close(b.stopchan)
+	b.wg.Wait()
 }
 
 // GetConfig return the configuration used by Binance chain client
@@ -276,7 +288,7 @@ func (b *Binance) getGasFee(count uint64) common.Gas {
 }
 
 func (b *Binance) checkAccountMemoFlag(addr string) bool {
-	acct, _ := b.GetAccountByAddress(addr)
+	acct, _ := b.GetAccountByAddress(addr, nil)
 	return acct.HasMemoFlag
 }
 
@@ -341,7 +353,7 @@ func (b *Binance) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, er
 	}
 	meta := b.accts.Get(tx.VaultPubKey)
 	if currentHeight > meta.BlockHeight {
-		acc, err := b.GetAccount(tx.VaultPubKey)
+		acc, err := b.GetAccount(tx.VaultPubKey, nil)
 		if err != nil {
 			return nil, fmt.Errorf("fail to get account info: %w", err)
 		}
@@ -407,17 +419,25 @@ func (b *Binance) signMsg(signMsg btx.StdSignMsg, from string, poolPubKey common
 	return nil, err
 }
 
-func (b *Binance) GetAccount(pkey common.PubKey) (common.Account, error) {
+func (b *Binance) GetAccount(pkey common.PubKey, height *big.Int) (common.Account, error) {
+	if height != nil {
+		b.logger.Error().Msg("height was provided but will be ignored")
+	}
+
 	addr := b.GetAddress(pkey)
 	address, err := types.AccAddressFromBech32(addr)
 	if err != nil {
 		b.logger.Error().Err(err).Msgf("fail to get parse address: %s", addr)
 		return common.Account{}, err
 	}
-	return b.GetAccountByAddress(address.String())
+	return b.GetAccountByAddress(address.String(), nil)
 }
 
-func (b *Binance) GetAccountByAddress(address string) (common.Account, error) {
+func (b *Binance) GetAccountByAddress(address string, height *big.Int) (common.Account, error) {
+	if height != nil {
+		b.logger.Error().Msg("height was provided but will be ignored")
+	}
+
 	u, err := url.Parse(b.cfg.RPCHost)
 	if err != nil {
 		log.Fatal().Msgf("Error parsing rpc (%s): %s", b.cfg.RPCHost, err)
@@ -493,12 +513,19 @@ func (b *Binance) BroadcastTx(tx stypes.TxOutItem, hexTx []byte) (string, error)
 	u.RawQuery = values.Encode()
 	resp, err := http.Post(u.String(), "", nil)
 	if err != nil {
-		return "", fmt.Errorf("fail to broadcast tx to binance chain: %w", err)
+		// Binance daemon sometimes get into trouble and restart , if bifrost happens to broadcast a tx at the time , it will return an err
+		// which cause bifrost to retry the same tx , thus double spend.
+		// log the error , and then move on , this might cause the node to accumulate some slash points , but at least not double spend and cause bond to be slashed.
+		// 300 blocks later, if the tx has not been sent , it will be rescheduled by the network
+		b.logger.Err(err).Msg("fail to broadcast tx to binance chain")
+		return "", nil
 	}
 	defer resp.Body.Close()
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("fail to read response body: %w", err)
+		// the same reason mentioned above
+		b.logger.Err(err).Msg("fail to read response body")
+		return "", nil
 	}
 
 	// NOTE: we can actually see two different json responses for the same end.
@@ -553,8 +580,9 @@ func (b *Binance) ConfirmationCountReady(txIn stypes.TxIn) bool {
 func (b *Binance) GetConfirmationCount(txIn stypes.TxIn) int64 {
 	return 0
 }
-func (b *Binance) reportSolvency(bnbBlockHeight int64) error {
-	if bnbBlockHeight%900 > 0 {
+
+func (b *Binance) ReportSolvency(bnbBlockHeight int64) error {
+	if !b.ShouldReportSolvency(bnbBlockHeight) {
 		return nil
 	}
 	asgardVaults, err := b.thorchainBridge.GetAsgards()
@@ -562,7 +590,7 @@ func (b *Binance) reportSolvency(bnbBlockHeight int64) error {
 		return fmt.Errorf("fail to get asgards,err: %w", err)
 	}
 	for _, asgard := range asgardVaults {
-		acct, err := b.GetAccount(asgard.PubKey)
+		acct, err := b.GetAccount(asgard.PubKey, nil)
 		if err != nil {
 			b.logger.Err(err).Msgf("fail to get account balance")
 			continue
@@ -578,8 +606,10 @@ func (b *Binance) reportSolvency(bnbBlockHeight int64) error {
 			b.logger.Info().Msgf("fail to send solvency info to THORChain, timeout")
 		}
 	}
+	b.lastSolvencyCheckHeight = bnbBlockHeight
 	return nil
 }
+
 func (b *Binance) OnObservedTxIn(txIn stypes.TxInItem, blockHeight int64) {
 	m, err := memo.ParseMemo(txIn.Memo)
 	if err != nil {
@@ -595,4 +625,9 @@ func (b *Binance) OnObservedTxIn(txIn stypes.TxInItem, blockHeight int64) {
 	if err := b.signerCacheManager.SetSigned(txIn.CacheHash(b.GetChain(), m.GetTxID().String()), txIn.Tx); err != nil {
 		b.logger.Err(err).Msg("fail to update signer cache")
 	}
+}
+
+// ShouldReportSolvency given block height , should chain client report solvency to THORNode
+func (b *Binance) ShouldReportSolvency(height int64) bool {
+	return height%900 == 0
 }

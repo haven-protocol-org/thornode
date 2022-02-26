@@ -28,6 +28,11 @@ import (
 	ttypes "gitlab.com/thorchain/thornode/x/thorchain/types"
 )
 
+const (
+	bob      = "bob"
+	password = "password"
+)
+
 func TestPackage(t *testing.T) { TestingT(t) }
 
 type BitcoinCashSuite struct {
@@ -36,6 +41,7 @@ type BitcoinCashSuite struct {
 	bridge *thorclient.ThorchainBridge
 	cfg    config.ChainConfiguration
 	m      *metrics.Metrics
+	keys   *thorclient.Keys
 }
 
 var _ = Suite(
@@ -52,7 +58,7 @@ func GetMetricForTest(c *C) *metrics.Metrics {
 			ListenPort:   9000,
 			ReadTimeout:  time.Second,
 			WriteTimeout: time.Second,
-			Chains:       common.Chains{common.ETHChain},
+			Chains:       common.Chains{common.BCHChain},
 		})
 		c.Assert(m, NotNil)
 		c.Assert(err, IsNil)
@@ -60,12 +66,20 @@ func GetMetricForTest(c *C) *metrics.Metrics {
 	return m
 }
 
+func (s *BitcoinCashSuite) SetUpSuite(c *C) {
+	ttypes.SetupConfigForTest()
+	kb := cKeys.NewInMemory()
+	_, _, err := kb.NewMnemonic(bob, cKeys.English, cmd.THORChainHDPath, hd.Secp256k1)
+	c.Assert(err, IsNil)
+	s.keys = thorclient.NewKeysWithKeybase(kb, bob, password)
+}
+
 func (s *BitcoinCashSuite) SetUpTest(c *C) {
 	s.m = GetMetricForTest(c)
 	s.cfg = config.ChainConfiguration{
 		ChainID:     "BCH",
-		UserName:    "bob",
-		Password:    "password",
+		UserName:    bob,
+		Password:    password,
 		DisableTLS:  true,
 		HTTPostMode: true,
 		BlockScanner: config.BlockScannerConfiguration{
@@ -73,7 +87,6 @@ func (s *BitcoinCashSuite) SetUpTest(c *C) {
 		},
 	}
 	ns := strconv.Itoa(time.Now().Nanosecond())
-	ttypes.SetupConfigForTest()
 	ctypes.Network = ctypes.TestNetwork
 	c.Assert(os.Setenv("NET", "testnet"), IsNil)
 
@@ -81,16 +94,10 @@ func (s *BitcoinCashSuite) SetUpTest(c *C) {
 	cfg := config.ClientConfiguration{
 		ChainID:         "thorchain",
 		ChainHost:       "localhost",
-		SignerName:      "bob",
-		SignerPasswd:    "password",
+		SignerName:      bob,
+		SignerPasswd:    password,
 		ChainHomeFolder: thordir,
 	}
-
-	kb := cKeys.NewInMemory()
-	_, _, err := kb.NewMnemonic(cfg.SignerName, cKeys.English, cmd.THORChainHDPath, hd.Secp256k1)
-	c.Assert(err, IsNil)
-	thorKeys := thorclient.NewKeysWithKeybase(kb, cfg.SignerName, cfg.SignerPasswd)
-	c.Assert(err, IsNil)
 
 	s.server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if req.RequestURI == "/" {
@@ -128,7 +135,7 @@ func (s *BitcoinCashSuite) SetUpTest(c *C) {
 			case r.Method == "getblockstats":
 				httpTestHandler(c, rw, "../../../../test/fixtures/bch/blockstats.json")
 			}
-		} else if strings.HasPrefix(req.RequestURI, "/thorchain/nodeaccount/") {
+		} else if strings.HasPrefix(req.RequestURI, "/thorchain/node/") {
 			httpTestHandler(c, rw, "../../../../test/fixtures/endpoints/nodeaccount/template.json")
 		} else if req.RequestURI == "/thorchain/lastblock" {
 			httpTestHandler(c, rw, "../../../../test/fixtures/endpoints/lastblock/bch.json")
@@ -140,14 +147,17 @@ func (s *BitcoinCashSuite) SetUpTest(c *C) {
 			c.Assert(err, IsNil)
 		} else if strings.HasPrefix(req.RequestURI, thorclient.AsgardVault) {
 			httpTestHandler(c, rw, "../../../../test/fixtures/endpoints/vaults/asgard.json")
+		} else if req.RequestURI == "/thorchain/mimir/key/MaxUTXOsToSpend" {
+			_, err := rw.Write([]byte(`-1`))
+			c.Assert(err, IsNil)
 		}
 	}))
-
+	var err error
 	cfg.ChainHost = s.server.Listener.Addr().String()
-	s.bridge, err = thorclient.NewThorchainBridge(cfg, s.m, thorKeys)
+	s.bridge, err = thorclient.NewThorchainBridge(cfg, s.m, s.keys)
 	c.Assert(err, IsNil)
 	s.cfg.RPCHost = s.server.Listener.Addr().String()
-	s.client, err = NewClient(thorKeys, s.cfg, nil, s.bridge, s.m)
+	s.client, err = NewClient(s.keys, s.cfg, nil, s.bridge, s.m)
 	c.Assert(err, IsNil)
 	c.Assert(s.client, NotNil)
 }
@@ -630,13 +640,13 @@ func (s *BitcoinCashSuite) TestGetHeight(c *C) {
 }
 
 func (s *BitcoinCashSuite) TestGetAccount(c *C) {
-	acct, err := s.client.GetAccount("tthorpub1addwnpepqt7qug8vk9r3saw8n4r803ydj2g3dqwx0mvq5akhnze86fc536xcycgtrnv")
+	acct, err := s.client.GetAccount("tthorpub1addwnpepqt7qug8vk9r3saw8n4r803ydj2g3dqwx0mvq5akhnze86fc536xcycgtrnv", nil)
 	c.Assert(err, IsNil)
 	c.Assert(acct.AccountNumber, Equals, int64(0))
 	c.Assert(acct.Sequence, Equals, int64(0))
 	c.Assert(acct.Coins[0].Equals(common.NewCoin(common.BCHAsset, cosmos.NewUint(2502000000))), Equals, true)
 
-	acct1, err := s.client.GetAccount("")
+	acct1, err := s.client.GetAccount("", nil)
 	c.Assert(err, NotNil)
 	c.Assert(acct1.AccountNumber, Equals, int64(0))
 	c.Assert(acct1.Sequence, Equals, int64(0))
@@ -797,7 +807,7 @@ func (s *BitcoinCashSuite) TestConfirmationCountReady(c *C) {
 		Filtered: true,
 		MemPool:  true,
 	}), Equals, true)
-	s.client.currentBlockHeight = 3
+	s.client.currentBlockHeight.Store(3)
 	c.Assert(s.client.ConfirmationCountReady(types.TxIn{
 		Chain: common.BCHChain,
 		TxArray: []types.TxInItem{

@@ -23,6 +23,7 @@ func (s *DogecoinBlockMetaAccessorTestSuite) TestNewBlockMetaAccessor(c *C) {
 	dbBlockMetaAccessor, err := NewLevelDBBlockMetaAccessor(db)
 	c.Assert(err, IsNil)
 	c.Assert(dbBlockMetaAccessor, NotNil)
+	c.Assert(db.Close(), IsNil)
 }
 
 func (s *DogecoinBlockMetaAccessorTestSuite) TestBlockMetaAccessor(c *C) {
@@ -60,10 +61,7 @@ func (s *DogecoinBlockMetaAccessorTestSuite) TestBlockMetaAccessor(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(blockMetas, HasLen, 1025)
 	c.Assert(blockMetaAccessor.PruneBlockMeta(1000, func(meta *BlockMeta) bool {
-		if meta.TransactionHashExist(hash.String()) {
-			return false
-		}
-		return true
+		return !meta.TransactionHashExist(hash.String())
 	}), IsNil)
 	allBlockMetas, err := blockMetaAccessor.GetBlockMetas()
 	c.Assert(err, IsNil)
@@ -79,4 +77,5 @@ func (s *DogecoinBlockMetaAccessorTestSuite) TestBlockMetaAccessor(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(fee, Equals, 1.0)
 	c.Assert(vSize, Equals, int32(1))
+	c.Assert(db.Close(), IsNil)
 }

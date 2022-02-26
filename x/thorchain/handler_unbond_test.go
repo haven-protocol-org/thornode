@@ -294,7 +294,7 @@ func (HandlerUnBondSuite) TestUnBondHanlder_retiringvault(c *C) {
 	}
 	c.Assert(k1.SetVault(ctx, vault), IsNil)
 	retiringVault := NewVault(12, RetiringVault, AsgardVault, GetRandomPubKey(), "", []string{
-		common.BNBChain.String(), common.BTCChain.String(), common.ETHChain.String(), common.LTCChain.String(), common.BCHChain.String(), "",
+		common.BNBChain.String(), common.BTCChain.String(), common.ETHChain.String(), common.LTCChain.String(), common.BCHChain.String(),
 	}, []ChainContract{})
 	retiringVault.Membership = []string{
 		activeNodeAccount.PubKeySet.Secp256k1.String(),

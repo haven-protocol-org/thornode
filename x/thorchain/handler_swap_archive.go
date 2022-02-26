@@ -260,7 +260,6 @@ func (h SwapHandler) handleV43(ctx cosmos.Context, msg MsgSwap) (*cosmos.Result,
 		return nil, swapErr
 	}
 	return &cosmos.Result{}, nil
-
 }
 
 func (h SwapHandler) handleV44(ctx cosmos.Context, msg MsgSwap) (*cosmos.Result, error) {
@@ -288,7 +287,6 @@ func (h SwapHandler) handleV44(ctx cosmos.Context, msg MsgSwap) (*cosmos.Result,
 		return nil, swapErr
 	}
 	return &cosmos.Result{}, nil
-
 }
 
 func (h SwapHandler) handleV55(ctx cosmos.Context, msg MsgSwap) (*cosmos.Result, error) {
@@ -316,5 +314,4 @@ func (h SwapHandler) handleV55(ctx cosmos.Context, msg MsgSwap) (*cosmos.Result,
 		return nil, swapErr
 	}
 	return &cosmos.Result{}, nil
-
 }

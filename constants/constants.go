@@ -12,15 +12,14 @@ import (
 )
 
 var (
-	GitCommit       string = "null"  // sha1 revision used to build the program
-	BuildTime       string = "null"  // when the executable was built
-	Version         string = "0.1.0" // software version
-	int64Overrides         = map[ConstantName]int64{}
-	boolOverrides          = map[ConstantName]bool{}
-	stringOverrides        = map[ConstantName]string{}
+	GitCommit       = "null"  // sha1 revision used to build the program
+	BuildTime       = "null"  // when the executable was built
+	Version         = "0.1.0" // software version
+	int64Overrides  = map[ConstantName]int64{}
+	boolOverrides   = map[ConstantName]bool{}
+	stringOverrides = map[ConstantName]string{}
 )
 
-// The version of this software
 var SWVersion, _ = semver.Make(Version)
 
 // ThorchainBlockTime Block time of THORChain
@@ -31,6 +30,8 @@ const MaxMemoSize = 250
 
 // MaxETHGas define the maximum gas for a single transaction on ETH
 const MaxETHGas = 50000000
+
+const CtxMetricLabels = "metricLabels"
 
 // ConstantVals implement ConstantValues interface
 type ConstantVals struct {
@@ -82,6 +83,7 @@ func (cv *ConstantVals) GetStringValue(name ConstantName) string {
 
 func (cv *ConstantVals) String() string {
 	sb := strings.Builder{}
+	// analyze-ignore(map-iteration)
 	for k, v := range cv.int64values {
 		if overrideValue, ok := int64Overrides[k]; ok {
 			sb.WriteString(fmt.Sprintf("%s:%d\n", k, overrideValue))
@@ -89,6 +91,7 @@ func (cv *ConstantVals) String() string {
 		}
 		sb.WriteString(fmt.Sprintf("%s:%d\n", k, v))
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range cv.boolValues {
 		if overrideValue, ok := boolOverrides[k]; ok {
 			sb.WriteString(fmt.Sprintf("%s:%v\n", k, overrideValue))
@@ -109,21 +112,27 @@ func (cv ConstantVals) MarshalJSON() ([]byte, error) {
 	result.Int64Values = make(map[string]int64)
 	result.BoolValues = make(map[string]bool)
 	result.StringValues = make(map[string]string)
+	// analyze-ignore(map-iteration)
 	for k, v := range cv.int64values {
 		result.Int64Values[k.String()] = v
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range int64Overrides {
 		result.Int64Values[k.String()] = v
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range cv.boolValues {
 		result.BoolValues[k.String()] = v
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range boolOverrides {
 		result.BoolValues[k.String()] = v
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range cv.stringValues {
 		result.StringValues[k.String()] = v
 	}
+	// analyze-ignore(map-iteration)
 	for k, v := range stringOverrides {
 		result.StringValues[k.String()] = v
 	}

@@ -73,23 +73,46 @@ func (m *Pool) GetPoolUnits() cosmos.Uint {
 }
 
 func (m *Pool) CalcUnits(version semver.Version, S cosmos.Uint) cosmos.Uint {
+	if version.GTE(semver.MustParse("0.80.0")) {
+		return m.CalcUnitsV80(S)
+	} else if version.GTE(semver.MustParse("0.1.0")) {
+		return m.CalcUnitsV1(S)
+	}
+	return m.GetPoolUnits()
+}
+
+func (m *Pool) CalcUnitsV80(S cosmos.Uint) cosmos.Uint {
 	// Calculate synth units
-	if version.GTE(semver.MustParse("0.1.0")) {
-		// (L*S)/(2*A-S)
-		// S := k.GetTotalSupply(ctx, p.Asset.GetSyntheticAsset())
-		if m.BalanceAsset.IsZero() {
+	// (L*S)/(2*A-S)
+	// S := k.GetTotalSupply(ctx, p.Asset.GetSyntheticAsset())
+	if m.BalanceAsset.IsZero() {
+		m.SynthUnits = cosmos.ZeroUint()
+	} else {
+		numerator := m.LPUnits.Mul(S)
+		denominator := common.SafeSub(m.BalanceAsset.MulUint64(2), S)
+		if denominator.IsZero() {
+			denominator = cosmos.OneUint()
+		}
+		m.SynthUnits = numerator.Quo(denominator)
+	}
+	return m.GetPoolUnits()
+}
+
+func (m *Pool) CalcUnitsV1(S cosmos.Uint) cosmos.Uint {
+	// Calculate synth units
+	// (L*S)/(2*A-S)
+	// S := k.GetTotalSupply(ctx, p.Asset.GetSyntheticAsset())
+	if m.BalanceAsset.IsZero() {
+		m.SynthUnits = cosmos.ZeroUint()
+	} else {
+		numerator := m.LPUnits.Mul(S)
+		denominator := common.SafeSub(m.BalanceAsset.MulUint64(2), S)
+		if denominator.IsZero() {
 			m.SynthUnits = cosmos.ZeroUint()
 		} else {
-			numerator := m.LPUnits.Mul(S)
-			denominator := common.SafeSub(m.BalanceAsset.MulUint64(2), S)
-			if denominator.IsZero() {
-				m.SynthUnits = cosmos.ZeroUint()
-			} else {
-				m.SynthUnits = numerator.Quo(denominator)
-			}
+			m.SynthUnits = numerator.Quo(denominator)
 		}
 	}
-
 	return m.GetPoolUnits()
 }
 
@@ -145,9 +168,11 @@ func (m Pool) AssetValueInRune(amt cosmos.Uint) cosmos.Uint {
 	return common.GetShare(m.BalanceRune, m.BalanceAsset, amt)
 }
 
-// AssetValueInRuneWithSlip returns the equivalent amount of rune for a given
-// amount of asset, taking slip into account.
-func (m Pool) AssetValueInRuneWithSlip(amt cosmos.Uint) cosmos.Uint {
+// RuneReimbursementForAssetWithdrawal returns the equivalent amount of rune for a
+// given amount of asset withdrawn from the pool, taking slip into account. When
+// this amount is added to the pool, the constant product of depths rule is
+// preserved.
+func (m Pool) RuneReimbursementForAssetWithdrawal(amt cosmos.Uint) cosmos.Uint {
 	if m.BalanceRune.IsZero() || m.BalanceAsset.IsZero() {
 		return cosmos.ZeroUint()
 	}
@@ -189,9 +214,10 @@ func (m Pools) Set(pool Pool) Pools {
 	return m
 }
 
-// RuneValueInAssetWithSlip returns the equivalent amount of asset for a given
-// amount of rune, taking slip into account.
-func (m Pool) RuneValueInAssetWithSlip(amt cosmos.Uint) cosmos.Uint {
+// AssetReimbursementForRuneWithdrawal returns the equivalent amount of asset for a given
+// amount of rune, taking slip into account. When this amount is added to the pool,
+// the constant product of depths rule is preserved.
+func (m Pool) AssetReimbursementForRuneWithdrawal(amt cosmos.Uint) cosmos.Uint {
 	if m.BalanceRune.IsZero() || m.BalanceAsset.IsZero() {
 		return cosmos.ZeroUint()
 	}
@@ -204,4 +230,29 @@ func (m Pool) RuneValueInAssetWithSlip(amt cosmos.Uint) cosmos.Uint {
 	}
 	assetAmt := common.GetShare(m.BalanceAsset, denom, amt)
 	return cosmos.RoundToDecimal(assetAmt, m.Decimals)
+}
+
+// RuneDisbursementForAssetAdd returns the equivalent amount of rune for a
+// given amount of asset added to the pool, taking slip into account. When this
+// amount is withdrawn from the pool, the constant product of depths rule is
+// preserved.
+func (m Pool) RuneDisbursementForAssetAdd(amt cosmos.Uint) cosmos.Uint {
+	if m.BalanceRune.IsZero() || m.BalanceAsset.IsZero() {
+		return cosmos.ZeroUint()
+	}
+	denom := m.BalanceAsset.Add(amt)
+	return common.GetShare(m.BalanceRune, denom, amt)
+}
+
+// AssetDisbursementForRuneAdd returns the equivalent amount of asset for a
+// given amount of rune added to the pool, taking slip into account. When this
+// amount is withdrawn from the pool, the constant product of depths rule is
+// preserved.
+func (m Pool) AssetDisbursementForRuneAdd(amt cosmos.Uint) cosmos.Uint {
+	if m.BalanceRune.IsZero() || m.BalanceAsset.IsZero() {
+		return cosmos.ZeroUint()
+	}
+	denom := m.BalanceRune.Add(amt)
+	outAmt := common.GetShare(m.BalanceAsset, denom, amt)
+	return cosmos.RoundToDecimal(outAmt, m.Decimals)
 }

@@ -35,50 +35,17 @@ var ETHGasFeeTransfer = Gas{
 // CalcBinanceGasPrice calculate gas price for Binance chain
 func CalcBinanceGasPrice(tx Tx, asset Asset, units []cosmos.Uint) Gas {
 	lenCoins := uint64(len(tx.Coins))
-	switch asset {
-	case BNBAsset:
-		if lenCoins == 0 {
+	if asset == BNBAsset {
+		switch {
+		case lenCoins == 0:
 			return nil
-		} else if lenCoins == 1 {
+		case lenCoins == 1:
 			return Gas{NewCoin(BNBAsset, units[0])}
-		} else if lenCoins > 1 {
+		case lenCoins > 1:
 			return Gas{NewCoin(BNBAsset, units[1].MulUint64(lenCoins))}
 		}
 	}
 	return nil
-}
-
-// UpdateGasPrice update gas based on the input tx
-func UpdateGasPrice(tx Tx, asset Asset, units []cosmos.Uint) []cosmos.Uint {
-	if tx.Gas.IsEmpty() {
-		// no change
-		return units
-	}
-
-	switch asset {
-	case BNBAsset:
-		// first unit is single txn, second unit is multiple transactions
-		if len(units) != 2 {
-			// defaults
-			units = []cosmos.Uint{cosmos.NewUint(37500), cosmos.NewUint(30000)}
-		}
-		gasCoin := tx.Gas.ToCoins().GetCoin(BNBAsset)
-		lenCoins := uint64(len(tx.Coins))
-		if lenCoins == 1 {
-			units[0] = gasCoin.Amount
-		} else if lenCoins > 1 {
-			units[1] = gasCoin.Amount.QuoUint64(lenCoins)
-		}
-	case BTCAsset, ETHAsset, BCHAsset, LTCAsset:
-		// BTC chain there is only one coin, which is bitcoin, gas is paid in bitcoin as well
-		gasCoin := tx.Gas.ToCoins().GetCoin(asset)
-		if nil == units {
-			return []cosmos.Uint{gasCoin.Amount}
-		}
-		units[0] = gasCoin.Amount
-
-	}
-	return units
 }
 
 // GetETHGasFee return the gas for ETH

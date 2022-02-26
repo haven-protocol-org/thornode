@@ -21,9 +21,10 @@ func (PoolTestSuite) TestPool(c *C) {
 	p.BalanceRune = cosmos.NewUint(100 * common.One)
 	p.BalanceAsset = cosmos.NewUint(50 * common.One)
 	c.Check(p.AssetValueInRune(cosmos.NewUint(25*common.One)).Equal(cosmos.NewUint(50*common.One)), Equals, true)
-	c.Check(p.AssetValueInRuneWithSlip(cosmos.NewUint(25*common.One)).Equal(cosmos.NewUint(10000000000)), Equals, true, Commentf("%d", p.AssetValueInRuneWithSlip(cosmos.NewUint(25*common.One)).Uint64()))
+	c.Check(p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(25*common.One)).Equal(cosmos.NewUint(10000000000)),
+		Equals, true, Commentf("%d", p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(25*common.One)).Uint64()))
 	c.Check(p.RuneValueInAsset(cosmos.NewUint(50*common.One)).Equal(cosmos.NewUint(25*common.One)), Equals, true)
-	c.Check(p.RuneValueInAssetWithSlip(cosmos.NewUint(50*common.One)).Equal(cosmos.NewUint(50*common.One)), Equals, true)
+	c.Check(p.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(50*common.One)).Equal(cosmos.NewUint(50*common.One)), Equals, true)
 
 	signer := GetRandomBech32Addr()
 	bnbAddress := GetRandomBNBAddress()
@@ -55,9 +56,9 @@ func (PoolTestSuite) TestPool(c *C) {
 	c.Check(p1.Valid(), NotNil)
 	p1.Asset = common.BNBAsset
 	c.Check(p1.AssetValueInRune(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
-	c.Check(p1.AssetValueInRuneWithSlip(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
+	c.Check(p1.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
 	c.Check(p1.RuneValueInAsset(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
-	c.Check(p1.RuneValueInAssetWithSlip(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
+	c.Check(p1.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(100)).Uint64(), Equals, cosmos.ZeroUint().Uint64())
 	p1.BalanceRune = cosmos.NewUint(100 * common.One)
 	p1.BalanceAsset = cosmos.NewUint(50 * common.One)
 	c.Check(p1.Valid(), IsNil)
@@ -119,4 +120,66 @@ func (PoolTestSuite) TestPools(c *C) {
 	c.Check(ok, Equals, true)
 	c.Check(pool.Asset.Equals(common.BTCAsset), Equals, true)
 	c.Check(pool.BalanceRune.Uint64(), Equals, uint64(20))
+}
+
+func (PoolTestSuite) TestCalcUnits(c *C) {
+	version := GetCurrentVersion()
+
+	pool := NewPool()
+	pool.Asset = common.BNBAsset
+	pool.LPUnits = cosmos.NewUint(100)
+
+	// no asset balance
+	synthSupply := cosmos.NewUint(100)
+	units := pool.CalcUnits(version, synthSupply)
+	c.Assert(pool.SynthUnits.Uint64(), Equals, uint64(0),
+		Commentf("pool without asset balance should have zero synth units"))
+	c.Assert(units.Uint64(), Equals, uint64(100),
+		Commentf("pool without asset balance should return LPUnits"))
+
+	// asset balance <= synthSupply / 2
+	pool.BalanceAsset = cosmos.NewUint(100)
+	pool.BalanceRune = cosmos.NewUint(100)
+	pool.LPUnits = cosmos.NewUint(100)
+	synthSupply = cosmos.NewUint(200)
+	units = pool.CalcUnits(version, synthSupply)
+	c.Assert(pool.SynthUnits.Uint64(), Equals, uint64(20_000))
+	c.Assert(units.Uint64(), Equals, uint64(20_100))
+
+	// normal case
+	pool.BalanceAsset = cosmos.NewUint(1_000)
+	pool.BalanceRune = cosmos.NewUint(1_000)
+	synthSupply = cosmos.NewUint(100)
+	units = pool.CalcUnits(version, synthSupply)
+	c.Assert(pool.SynthUnits.Uint64(), Equals, uint64(5))
+	c.Assert(units.Uint64(), Equals, uint64(105))
+}
+
+func (PoolTestSuite) TestReimbursementAndDisbursement(c *C) {
+	p := NewPool()
+	c.Check(p.IsEmpty(), Equals, true)
+	p.Asset = common.BNBAsset
+	c.Check(p.IsEmpty(), Equals, false)
+	p.BalanceRune = cosmos.NewUint(100 * common.One)
+	p.BalanceAsset = cosmos.NewUint(50 * common.One)
+	c.Check(p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(25*common.One)).Equal(cosmos.NewUint(100*common.One)), Equals, true)
+	c.Check(p.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(90*common.One)).Equal(cosmos.NewUint(450*common.One)), Equals, true)
+	c.Check(p.RuneDisbursementForAssetAdd(cosmos.NewUint(150*common.One)).Equal(cosmos.NewUint(75*common.One)), Equals, true)
+	c.Check(p.AssetDisbursementForRuneAdd(cosmos.NewUint(900*common.One)).Equal(cosmos.NewUint(45*common.One)), Equals, true)
+
+	c.Check(p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(1000*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(1000*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+
+	p.BalanceRune = cosmos.NewUint(0)
+	c.Check(p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.RuneDisbursementForAssetAdd(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.AssetDisbursementForRuneAdd(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+
+	p.BalanceRune = cosmos.NewUint(100 * common.One)
+	p.BalanceAsset = cosmos.NewUint(0)
+	c.Check(p.RuneReimbursementForAssetWithdrawal(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.AssetReimbursementForRuneWithdrawal(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.RuneDisbursementForAssetAdd(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
+	c.Check(p.AssetDisbursementForRuneAdd(cosmos.NewUint(1*common.One)).Equal(cosmos.NewUint(0*common.One)), Equals, true)
 }

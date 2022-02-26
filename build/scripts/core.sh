@@ -5,6 +5,7 @@ set -o pipefail
 PORT_P2P=26656
 PORT_RPC=26657
 [ "$NET" = "mainnet" ] && PORT_P2P=27146 && PORT_RPC=27147
+[ "$NET" = "stagenet" ] && PORT_P2P=27146 && PORT_RPC=27147
 
 # adds an account node into the genesis file
 add_node_account() {
@@ -16,32 +17,12 @@ add_node_account() {
   NODE_PUB_KEY_ED25519=$6
   IP_ADDRESS=$7
   MEMBERSHIP=$8
-  jq --arg IP_ADDRESS "$IP_ADDRESS" --arg VERSION "$VERSION" --arg BOND_ADDRESS "$BOND_ADDRESS" --arg VALIDATOR "$VALIDATOR" --arg NODE_ADDRESS "$NODE_ADDRESS" --arg NODE_PUB_KEY "$NODE_PUB_KEY" --arg NODE_PUB_KEY_ED25519 "$NODE_PUB_KEY_ED25519" '.app_state.thorchain.node_accounts += [{"node_address": $NODE_ADDRESS, "version": $VERSION, "ip_address": $IP_ADDRESS, "status": "Active", "active_block_height": "0", "bond_address":$BOND_ADDRESS, "signer_membership": [], "validator_cons_pub_key":$VALIDATOR, "pub_key_set":{"secp256k1":$NODE_PUB_KEY,"ed25519":$NODE_PUB_KEY_ED25519}}]' <~/.thornode/config/genesis.json >/tmp/genesis.json
+  jq --arg IP_ADDRESS "$IP_ADDRESS" --arg VERSION "$VERSION" --arg BOND_ADDRESS "$BOND_ADDRESS" --arg VALIDATOR "$VALIDATOR" --arg NODE_ADDRESS "$NODE_ADDRESS" --arg NODE_PUB_KEY "$NODE_PUB_KEY" --arg NODE_PUB_KEY_ED25519 "$NODE_PUB_KEY_ED25519" '.app_state.thorchain.node_accounts += [{"node_address": $NODE_ADDRESS, "version": $VERSION, "ip_address": $IP_ADDRESS, "status": "Active","bond":"100000000", "active_block_height": "0", "bond_address":$BOND_ADDRESS, "signer_membership": [], "validator_cons_pub_key":$VALIDATOR, "pub_key_set":{"secp256k1":$NODE_PUB_KEY,"ed25519":$NODE_PUB_KEY_ED25519}}]' <~/.thornode/config/genesis.json >/tmp/genesis.json
   mv /tmp/genesis.json ~/.thornode/config/genesis.json
   if [ -n "$MEMBERSHIP" ]; then
     jq --arg MEMBERSHIP "$MEMBERSHIP" '.app_state.thorchain.node_accounts[-1].signer_membership += [$MEMBERSHIP]' ~/.thornode/config/genesis.json >/tmp/genesis.json
     mv /tmp/genesis.json ~/.thornode/config/genesis.json
   fi
-}
-
-add_last_event_id() {
-  echo "Adding last event id $1"
-  jq --arg ID "$1" '.app_state.thorchain.last_event_id = $ID' ~/.thornode/config/genesis.json >/tmp/genesis.json
-  mv /tmp/genesis.json ~/.thornode/config/genesis.json
-}
-
-add_gas_config() {
-  asset=$1
-  shift
-
-  # add asset to gas
-  jq --argjson path "[\"app_state\", \"thorchain\", \"gas\", \"$asset\"]" 'getpath($path) = []' ~/.thornode/config/genesis.json >/tmp/genesis.json
-  mv /tmp/genesis.json ~/.thornode/config/genesis.json
-
-  for unit in "$@"; do
-    jq --argjson path "[\"app_state\", \"thorchain\", \"gas\", \"$asset\"]" --arg unit "$unit" 'getpath($path) += [$unit]' ~/.thornode/config/genesis.json >/tmp/genesis.json
-    mv /tmp/genesis.json ~/.thornode/config/genesis.json
-  done
 }
 
 reserve() {
@@ -82,24 +63,29 @@ add_vault() {
   jq --arg POOL_PUBKEY "$POOL_PUBKEY" '.app_state.thorchain.vaults += [{"block_height": "0", "pub_key": $POOL_PUBKEY, "coins":[], "type": "asgard", "status":"active", "status_since": "0", "membership":[]}]' <~/.thornode/config/genesis.json >/tmp/genesis.json
   mv /tmp/genesis.json ~/.thornode/config/genesis.json
 
-  export IFS=","
+  OLD_IFS=IFS
+  IFS=","
   for pubkey in "$@"; do # iterate over our list of comma separated pubkeys
     jq --arg PUBKEY "$pubkey" '.app_state.thorchain.vaults[0].membership += [$PUBKEY]' ~/.thornode/config/genesis.json >/tmp/genesis.json
     mv /tmp/genesis.json ~/.thornode/config/genesis.json
   done
+  IFS=OLD_IFS
 }
 
 # inits a thorchain with a comman separate list of usernames
 init_chain() {
-  export IFS=","
+  OLD_IFS=IFS
+  IFS=","
 
   echo "Init chain"
-  thornode init local --chain-id thorchain
+  thornode init local --chain-id "$CHAIN_ID"
   echo "$SIGNER_PASSWD" | thornode keys list --keyring-backend file
 
   for user in "$@"; do # iterate over our list of comma separated users "alice,jack"
-    thornode add-genesis-account "$user" 1000000000000rune
+    thornode add-genesis-account "$user" 100000000rune
   done
+
+  IFS=OLD_IFS
 
   # thornode config chain-id thorchain
   # thornode config output json
@@ -118,12 +104,11 @@ block_time() {
 }
 
 seeds_list() {
-  SEEDS=$1
-  EXPECTED_NETWORK=$2
+  EXPECTED_NETWORK=$(echo "$@" | awk '{print $NF}')
   OLD_IFS=$IFS
   IFS=","
   SEED_LIST=""
-  for SEED in $SEEDS; do
+  for SEED in $1; do
     NODE_ID=$(curl -sL --fail -m 10 "$SEED:$PORT_RPC/status" | jq -r .result.node_info.id) || continue
     NETWORK=$(curl -sL --fail -m 10 "$SEED:$PORT_RPC/status" | jq -r .result.node_info.network) || continue
     # make sure the seeds are on the same network
@@ -211,11 +196,10 @@ fetch_genesis() {
 }
 
 fetch_genesis_from_seeds() {
-  SEEDS=$1
   OLD_IFS=$IFS
   IFS=","
   SEED_LIST=""
-  for SEED in $SEEDS; do
+  for SEED in $1; do
     echo "Fetching genesis from seed $SEED"
     curl -sL --fail -m 10 "$SEED:$PORT_RPC/genesis" | jq .result.genesis >~/.thornode/config/genesis.json || continue
     thornode validate-genesis

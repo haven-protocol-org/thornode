@@ -1,9 +1,12 @@
 package thorchain
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/armon/go-metrics"
 	"github.com/blang/semver"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	se "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"gitlab.com/thorchain/thornode/common"
@@ -64,7 +67,9 @@ func (h ObservedTxInHandler) validateV1(ctx cosmos.Context, msg MsgObservedTxIn)
 
 func (h ObservedTxInHandler) handle(ctx cosmos.Context, msg MsgObservedTxIn) (*cosmos.Result, error) {
 	version := h.mgr.GetVersion()
-	if version.GTE(semver.MustParse("0.67.0")) {
+	if version.GTE(semver.MustParse("0.78.0")) {
+		return h.handleV78(ctx, msg)
+	} else if version.GTE(semver.MustParse("0.67.0")) {
 		return h.handleV67(ctx, msg)
 	} else if version.GTE(semver.MustParse("0.61.0")) {
 		return h.handleV61(ctx, msg)
@@ -85,7 +90,13 @@ func (h ObservedTxInHandler) handle(ctx cosmos.Context, msg MsgObservedTxIn) (*c
 func (h ObservedTxInHandler) preflightV1(ctx cosmos.Context, voter ObservedTxVoter, nas NodeAccounts, tx ObservedTx, signer cosmos.AccAddress) (ObservedTxVoter, bool) {
 	observeSlashPoints := h.mgr.GetConstants().GetInt64Value(constants.ObserveSlashPoints)
 	observeFlex := h.mgr.GetConstants().GetInt64Value(constants.ObservationDelayFlexibility)
-	h.mgr.Slasher().IncSlashPoints(ctx, observeSlashPoints, signer)
+
+	slashCtx := ctx.WithContext(context.WithValue(ctx.Context(), constants.CtxMetricLabels, []metrics.Label{
+		telemetry.NewLabel("reason", "failed_observe_txin"),
+		telemetry.NewLabel("chain", string(tx.Tx.Chain)),
+	}))
+	h.mgr.Slasher().IncSlashPoints(slashCtx, observeSlashPoints, signer)
+
 	ok := false
 	if err := h.mgr.Keeper().SetLastObserveHeight(ctx, tx.Tx.Chain, signer, tx.BlockHeight); err != nil {
 		ctx.Logger().Error("fail to save last observe height", "error", err, "signer", signer, "chain", tx.Tx.Chain)
@@ -99,12 +110,12 @@ func (h ObservedTxInHandler) preflightV1(ctx cosmos.Context, voter ObservedTxVot
 			voter.FinalisedHeight = common.BlockHeight(ctx)
 			voter.Tx = voter.GetTx(nas)
 			// tx has consensus now, so decrease the slashing points for all the signers whom had voted for it
-			h.mgr.Slasher().DecSlashPoints(ctx, observeSlashPoints, voter.Tx.GetSigners()...)
+			h.mgr.Slasher().DecSlashPoints(slashCtx, observeSlashPoints, voter.Tx.GetSigners()...)
 		} else {
 			// event the tx had been processed , given the signer just a bit late , so still take away their slash points
 			// but only when the tx signer are voting is the tx that already reached consensus
 			if common.BlockHeight(ctx) <= (voter.FinalisedHeight+observeFlex) && voter.Tx.Equals(tx) {
-				h.mgr.Slasher().DecSlashPoints(ctx, observeSlashPoints, signer)
+				h.mgr.Slasher().DecSlashPoints(slashCtx, observeSlashPoints, signer)
 			}
 		}
 	}
@@ -116,12 +127,12 @@ func (h ObservedTxInHandler) preflightV1(ctx cosmos.Context, voter ObservedTxVot
 			voter.Tx = voter.GetTx(nas)
 
 			// tx has consensus now, so decrease the slashing points for all the signers whom had voted for it
-			h.mgr.Slasher().DecSlashPoints(ctx, observeSlashPoints, voter.Tx.GetSigners()...)
+			h.mgr.Slasher().DecSlashPoints(slashCtx, observeSlashPoints, voter.Tx.GetSigners()...)
 		} else {
 			// event the tx had been processed , given the signer just a bit late , so still take away their slash points
 			// but only when the tx signer are voting is the tx that already reached consensus
 			if common.BlockHeight(ctx) <= (voter.Height+observeFlex) && voter.Tx.Equals(tx) {
-				h.mgr.Slasher().DecSlashPoints(ctx, observeSlashPoints, signer)
+				h.mgr.Slasher().DecSlashPoints(slashCtx, observeSlashPoints, signer)
 			}
 		}
 	}
@@ -132,7 +143,7 @@ func (h ObservedTxInHandler) preflightV1(ctx cosmos.Context, voter ObservedTxVot
 	return voter, ok
 }
 
-func (h ObservedTxInHandler) handleV67(ctx cosmos.Context, msg MsgObservedTxIn) (*cosmos.Result, error) {
+func (h ObservedTxInHandler) handleV78(ctx cosmos.Context, msg MsgObservedTxIn) (*cosmos.Result, error) {
 	activeNodeAccounts, err := h.mgr.Keeper().ListActiveValidators(ctx)
 	if err != nil {
 		return nil, wrapError(ctx, err, "fail to get list of active node accounts")
@@ -169,7 +180,7 @@ func (h ObservedTxInHandler) handleV67(ctx cosmos.Context, msg MsgObservedTxIn) 
 
 		voter, err := h.mgr.Keeper().GetObservedTxInVoter(ctx, tx.Tx.ID)
 		if err != nil {
-			ctx.Logger().Error("fail to get tx out voter", "error", err)
+			ctx.Logger().Error("fail to get tx in voter", "error", err)
 			continue
 		}
 
@@ -199,6 +210,12 @@ func (h ObservedTxInHandler) handleV67(ctx cosmos.Context, msg MsgObservedTxIn) 
 		vault, err := h.mgr.Keeper().GetVault(ctx, tx.ObservedPubKey)
 		if err != nil {
 			ctx.Logger().Error("fail to get vault", "error", err)
+			continue
+		}
+		// do not observe inactive vaults unless it's the confirmation for a txn
+		// that reached consensus/updated the vault when the vault was still active
+		if vault.Status == InactiveVault && !voter.UpdatedVault {
+			ctx.Logger().Error("observed tx on inactive vault", "tx", tx.String())
 			continue
 		}
 		if vault.IsAsgard() {

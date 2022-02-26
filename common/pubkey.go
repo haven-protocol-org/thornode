@@ -37,10 +37,8 @@ type (
 	PubKeys []PubKey
 )
 
-// EmptyPubKey
 var EmptyPubKey PubKey
 
-// EmptyPubKeySet
 var EmptyPubKeySet PubKeySet
 
 // NewPubKey create a new instance of PubKey
@@ -135,7 +133,7 @@ func (pubKey PubKey) GetAddress(chain Chain) (Address, error) {
 			net = &chaincfg.RegressionNetParams
 		case TestNet:
 			net = &chaincfg.TestNet3Params
-		case MainNet:
+		case MainNet, StageNet:
 			net = &chaincfg.MainNetParams
 		}
 		addr, err := btcutil.NewAddressWitnessPubKeyHash(pk.Address().Bytes(), net)
@@ -154,12 +152,50 @@ func (pubKey PubKey) GetAddress(chain Chain) (Address, error) {
 			net = &ltcchaincfg.RegressionNetParams
 		case TestNet:
 			net = &ltcchaincfg.TestNet4Params
-		case MainNet:
+		case MainNet, StageNet:
 			net = &ltcchaincfg.MainNetParams
 		}
 		addr, err := ltcutil.NewAddressWitnessPubKeyHash(pk.Address().Bytes(), net)
 		if err != nil {
 			return NoAddress, fmt.Errorf("fail to bech32 encode the address, err: %w", err)
+		}
+		return NewAddress(addr.String())
+	case DOGEChain:
+		pk, err := cosmos.GetPubKeyFromBech32(cosmos.Bech32PubKeyTypeAccPub, string(pubKey))
+		if err != nil {
+			return NoAddress, err
+		}
+		var net *dogchaincfg.Params
+		switch chainNetwork {
+		case MockNet:
+			net = &dogchaincfg.RegressionNetParams
+		case TestNet:
+			net = &dogchaincfg.TestNet3Params
+		case MainNet, StageNet:
+			net = &dogchaincfg.MainNetParams
+		}
+		addr, err := dogutil.NewAddressPubKeyHash(pk.Address().Bytes(), net)
+		if err != nil {
+			return NoAddress, fmt.Errorf("fail to encode the address, err: %w", err)
+		}
+		return NewAddress(addr.String())
+	case BCHChain:
+		pk, err := cosmos.GetPubKeyFromBech32(cosmos.Bech32PubKeyTypeAccPub, string(pubKey))
+		if err != nil {
+			return NoAddress, err
+		}
+		var net *bchchaincfg.Params
+		switch chainNetwork {
+		case MockNet:
+			net = &bchchaincfg.RegressionNetParams
+		case TestNet:
+			net = &bchchaincfg.TestNet3Params
+		case MainNet, StageNet:
+			net = &bchchaincfg.MainNetParams
+		}
+		addr, err := bchutil.NewAddressPubKeyHash(pk.Address().Bytes(), net)
+		if err != nil {
+			return NoAddress, fmt.Errorf("fail to encode the address, err: %w", err)
 		}
 		return NewAddress(addr.String())
 	case DOGEChain:
@@ -296,8 +332,12 @@ func (pks PubKeys) Equals(newPks PubKeys) bool {
 	if len(pks) != len(newPks) {
 		return false
 	}
-	source := append(pks[:0:0], pks...)
-	dest := append(newPks[:0:0], newPks...)
+
+	source := make(PubKeys, len(pks))
+	dest := make(PubKeys, len(newPks))
+	copy(source, pks)
+	copy(dest, newPks)
+
 	// sort both lists
 	sort.Slice(source[:], func(i, j int) bool {
 		return source[i].String() < source[j].String()

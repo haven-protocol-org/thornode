@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	types2 "github.com/cosmos/cosmos-sdk/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"gitlab.com/thorchain/thornode/common"
@@ -19,6 +22,7 @@ import (
 // NewQuerier is the module level router for state queries
 func NewQuerier(mgr *Mgrs, kbs cosmos.KeybaseStore) cosmos.Querier {
 	return func(ctx cosmos.Context, path []string, req abci.RequestQuery) (res []byte, err error) {
+		defer telemetry.MeasureSince(time.Now(), path[0])
 		switch path[0] {
 		case q.QueryPool.Key:
 			return queryPool(ctx, path[1:], req, mgr)
@@ -70,6 +74,14 @@ func NewQuerier(mgr *Mgrs, kbs cosmos.KeybaseStore) cosmos.Querier {
 			return queryMimirValues(ctx, path[1:], req, mgr)
 		case q.QueryMimirWithKey.Key:
 			return queryMimirWithKey(ctx, path[1:], req, mgr)
+		case q.QueryMimirAdminValues.Key:
+			return queryMimirAdminValues(ctx, path[1:], req, mgr)
+		case q.QueryMimirNodesAllValues.Key:
+			return queryMimirNodesAllValues(ctx, path[1:], req, mgr)
+		case q.QueryMimirNodesValues.Key:
+			return queryMimirNodesValues(ctx, path[1:], req, mgr)
+		case q.QueryMimirNodeValues.Key:
+			return queryMimirNodeValues(ctx, path[1:], req, mgr)
 		case q.QueryBan.Key:
 			return queryBan(ctx, path[1:], req, mgr)
 		case q.QueryRagnarok.Key:
@@ -176,7 +188,6 @@ func queryVault(ctx cosmos.Context, path []string, mgr *Mgrs) ([]byte, error) {
 		return nil, fmt.Errorf("fail to marshal response to json: %w", err)
 	}
 	return res, nil
-
 }
 
 func queryAsgardVaults(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
@@ -328,9 +339,6 @@ func queryVaultsPubkeys(ctx cosmos.Context, mgr *Mgrs) ([]byte, error) {
 			ctx.Logger().Error("fail to unmarshal vault", "error", err)
 			return nil, fmt.Errorf("fail to unmarshal vault: %w", err)
 		}
-
-		// get the cn data
-
 		if vault.IsYggdrasil() {
 			na, err := mgr.Keeper().GetNodeAccountByPubKey(ctx, vault.PubKey)
 			if err != nil {
@@ -521,12 +529,15 @@ func queryNode(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mg
 	if err != nil {
 		return nil, fmt.Errorf("fail to get last observe chain height: %w", err)
 	}
+
+	// analyze-ignore(map-iteration)
 	for c, h := range chainHeights {
 		result.ObserveChains = append(result.ObserveChains, types.QueryChainHeight{
 			Chain:  c,
 			Height: h,
 		})
 	}
+
 	preflightCheckResult, err := getNodePreflightResult(ctx, mgr, nodeAcc)
 	if err != nil {
 		ctx.Logger().Error("fail to get node preflight result", "error", err)
@@ -583,6 +594,10 @@ func queryNodes(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *M
 	lastChurnHeight := vaults[0].BlockHeight
 	result := make([]QueryNodeAccount, len(nodeAccounts))
 	for i, na := range nodeAccounts {
+		if na.RequestedToLeave && na.Bond.LTE(cosmos.NewUint(common.One)) {
+			// ignore the node , it left and also has very little bond
+			continue
+		}
 		slashPts, err := mgr.Keeper().GetNodeAccountSlashPoints(ctx, na.NodeAddress)
 		if err != nil {
 			return nil, fmt.Errorf("fail to get node slash points: %w", err)
@@ -608,12 +623,15 @@ func queryNodes(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *M
 		if err != nil {
 			return nil, fmt.Errorf("fail to get last observe chain height: %w", err)
 		}
+
+		// analyze-ignore(map-iteration)
 		for c, h := range chainHeights {
 			result[i].ObserveChains = append(result[i].ObserveChains, types.QueryChainHeight{
 				Chain:  c,
 				Height: h,
 			})
 		}
+
 		preflightCheckResult, err := getNodePreflightResult(ctx, mgr, na)
 		if err != nil {
 			ctx.Logger().Error("fail to get node preflight result", "error", err)
@@ -1159,7 +1177,42 @@ func queryMimirWithKey(ctx cosmos.Context, path []string, req abci.RequestQuery,
 	}
 	return res, nil
 }
+
 func queryMimirValues(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mgrs) ([]byte, error) {
+	values := make(map[string]int64, 0)
+
+	// collect keys
+	iter := mgr.Keeper().GetMimirIterator(ctx)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		k := strings.TrimLeft(string(iter.Key()), "mimir//")
+		values[k] = 0
+	}
+	iterNode := mgr.Keeper().GetNodeMimirIterator(ctx)
+	defer iterNode.Close()
+	for ; iterNode.Valid(); iterNode.Next() {
+		k := strings.TrimLeft(string(iterNode.Key()), "nodemimir//")
+		values[k] = 0
+	}
+
+	// analyze-ignore(map-iteration)
+	for k := range values {
+		v, err := mgr.Keeper().GetMimir(ctx, k)
+		if err != nil {
+			return nil, fmt.Errorf("fail to get mimir, err: %w", err)
+		}
+		values[k] = v
+	}
+
+	res, err := json.MarshalIndent(values, "", "	")
+	if err != nil {
+		ctx.Logger().Error("fail to marshal mimir values to json", "error", err)
+		return nil, fmt.Errorf("fail to marshal mimir values to json: %w", err)
+	}
+	return res, nil
+}
+
+func queryMimirAdminValues(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mgrs) ([]byte, error) {
 	values := make(map[string]int64, 0)
 	iter := mgr.Keeper().GetMimirIterator(ctx)
 	defer iter.Close()
@@ -1169,8 +1222,92 @@ func queryMimirValues(ctx cosmos.Context, path []string, req abci.RequestQuery, 
 			ctx.Logger().Error("fail to unmarshal mimir value", "error", err)
 			return nil, fmt.Errorf("fail to unmarshal mimir value: %w", err)
 		}
-		values[string(iter.Key())] = value.GetValue()
+		k := strings.TrimLeft(string(iter.Key()), "mimir//")
+		values[k] = value.GetValue()
 	}
+	res, err := json.MarshalIndent(values, "", "	")
+	if err != nil {
+		ctx.Logger().Error("fail to marshal mimir values to json", "error", err)
+		return nil, fmt.Errorf("fail to marshal mimir values to json: %w", err)
+	}
+	return res, nil
+}
+
+func queryMimirNodesAllValues(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mgrs) ([]byte, error) {
+	mimirs := NodeMimirs{}
+	iter := mgr.Keeper().GetNodeMimirIterator(ctx)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		m := NodeMimirs{}
+		if err := mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &m); err != nil {
+			ctx.Logger().Error("fail to unmarshal node mimir value", "error", err)
+			return nil, fmt.Errorf("fail to unmarshal node mimir value: %w", err)
+		}
+		mimirs.Mimirs = append(mimirs.Mimirs, m.Mimirs...)
+	}
+
+	res, err := json.MarshalIndent(mimirs, "", "	")
+	if err != nil {
+		ctx.Logger().Error("fail to marshal mimir values to json", "error", err)
+		return nil, fmt.Errorf("fail to marshal mimir values to json: %w", err)
+	}
+	return res, nil
+}
+
+func queryMimirNodesValues(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mgrs) ([]byte, error) {
+	activeNodes, err := mgr.Keeper().ListActiveValidators(ctx)
+	if err != nil {
+		ctx.Logger().Error("fail to fetch active node accounts", "error", err)
+		return nil, fmt.Errorf("fail to fetch active node accounts: %w", err)
+	}
+	active := activeNodes.GetNodeAddresses()
+
+	values := make(map[string]int64, 0)
+	iter := mgr.Keeper().GetNodeMimirIterator(ctx)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		mimirs := NodeMimirs{}
+		if err := mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &mimirs); err != nil {
+			ctx.Logger().Error("fail to unmarshal node mimir value", "error", err)
+			return nil, fmt.Errorf("fail to unmarshal node mimir value: %w", err)
+		}
+		k := strings.TrimLeft(string(iter.Key()), "nodemimir//")
+		if v, ok := mimirs.HasSuperMajority(k, active); ok {
+			values[k] = v
+		}
+	}
+
+	res, err := json.MarshalIndent(values, "", "	")
+	if err != nil {
+		ctx.Logger().Error("fail to marshal mimir values to json", "error", err)
+		return nil, fmt.Errorf("fail to marshal mimir values to json: %w", err)
+	}
+	return res, nil
+}
+
+func queryMimirNodeValues(ctx cosmos.Context, path []string, req abci.RequestQuery, mgr *Mgrs) ([]byte, error) {
+	acc, err := cosmos.AccAddressFromBech32(path[0])
+	if err != nil {
+		ctx.Logger().Error("fail to parse thor address", "error", err)
+		return nil, fmt.Errorf("fail to parse thor address: %w", err)
+	}
+
+	values := make(map[string]int64, 0)
+	iter := mgr.Keeper().GetNodeMimirIterator(ctx)
+	defer iter.Close()
+	for ; iter.Valid(); iter.Next() {
+		mimirs := NodeMimirs{}
+		if err := mgr.Keeper().Cdc().UnmarshalBinaryBare(iter.Value(), &mimirs); err != nil {
+			ctx.Logger().Error("fail to unmarshal node mimir value", "error", err)
+			return nil, fmt.Errorf("fail to unmarshal node mimir value: %w", err)
+		}
+
+		k := strings.TrimLeft(string(iter.Key()), "nodemimir//")
+		if v, ok := mimirs.Get(k, acc); ok {
+			values[k] = v
+		}
+	}
+
 	res, err := json.MarshalIndent(values, "", "	")
 	if err != nil {
 		ctx.Logger().Error("fail to marshal mimir values to json", "error", err)

@@ -53,6 +53,7 @@ type ChainConfiguration struct {
 	BackOff             BackOff
 	OptToRetire         bool `json:"opt_to_retire" mapstructure:"opt_to_retire"` // don't emit support for this chain during keygen process
 	ParallelMempoolScan int  `json:"parallel_mempool_scan" mapstructure:"parallel_mempool_scan"`
+	Disabled            bool `json:"disabled" mapstructure:"disabled"`
 }
 
 // TSSConfiguration
@@ -94,6 +95,7 @@ type ClientConfiguration struct {
 
 type MetricsConfiguration struct {
 	Enabled      bool           `json:"enabled" mapstructure:"enabled"`
+	PprofEnabled bool           `json:"pprof_enabled" mapstructure:"pprof_enabled"`
 	ListenPort   int            `json:"listen_port" mapstructure:"listen_port"`
 	ReadTimeout  time.Duration  `json:"read_timeout" mapstructure:"read_timeout"`
 	WriteTimeout time.Duration  `json:"write_timeout" mapstructure:"write_timeout"`

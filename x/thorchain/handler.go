@@ -324,6 +324,7 @@ func processOneTxInV1(ctx cosmos.Context, keeper keeper.Keeper, tx ObservedTx, s
 	}
 	return newMsg, newMsg.ValidateBasic()
 }
+
 func processOneTxInV46(ctx cosmos.Context, keeper keeper.Keeper, tx ObservedTx, signer cosmos.AccAddress) (cosmos.Msg, error) {
 	memo, err := ParseMemo(tx.Tx.Memo)
 	if err != nil {

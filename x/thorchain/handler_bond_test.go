@@ -37,6 +37,40 @@ func (k *TestBondKeeper) GetNodeAccount(_ cosmos.Context, addr cosmos.AccAddress
 
 var _ = Suite(&HandlerBondSuite{})
 
+func (HandlerBondSuite) TestBondHandler_ValidateActive(c *C) {
+	ctx, k := setupKeeperForTest(c)
+
+	activeNodeAccount := GetRandomValidatorNode(NodeActive)
+	c.Assert(k.SetNodeAccount(ctx, activeNodeAccount), IsNil)
+
+	vault := GetRandomVault()
+	vault.Status = RetiringVault
+	c.Assert(k.SetVault(ctx, vault), IsNil)
+
+	handler := NewBondHandler(NewDummyMgrWithKeeper(k))
+
+	txIn := common.NewTx(
+		GetRandomTxHash(),
+		GetRandomBNBAddress(),
+		GetRandomBNBAddress(),
+		common.Coins{
+			common.NewCoin(common.RuneAsset(), cosmos.NewUint(10*common.One)),
+		},
+		BNBGasFeeSingleton,
+		"bond",
+	)
+	msg := NewMsgBond(txIn, activeNodeAccount.NodeAddress, cosmos.NewUint(10*common.One), GetRandomBNBAddress(), activeNodeAccount.NodeAddress)
+
+	// happy path
+	c.Assert(handler.validate(ctx, *msg), IsNil)
+
+	vault.Status = ActiveVault
+	c.Assert(k.SetVault(ctx, vault), IsNil)
+
+	// unhappy path
+	c.Assert(handler.validate(ctx, *msg), NotNil)
+}
+
 func (HandlerBondSuite) TestBondHandler_Run(c *C) {
 	ctx, k1 := setupKeeperForTest(c)
 
@@ -45,7 +79,7 @@ func (HandlerBondSuite) TestBondHandler_Run(c *C) {
 		Keeper:              k1,
 		activeNodeAccount:   activeNodeAccount,
 		failGetNodeAccount:  GetRandomValidatorNode(NodeActive),
-		notEmptyNodeAccount: GetRandomValidatorNode(NodeActive),
+		notEmptyNodeAccount: GetRandomValidatorNode(NodeStandby),
 	}
 	// happy path
 	c.Assert(k1.SetNodeAccount(ctx, activeNodeAccount), IsNil)
@@ -83,7 +117,7 @@ func (HandlerBondSuite) TestBondHandler_Run(c *C) {
 	_, err = handler.Run(ctx, msg)
 	c.Assert(errors.Is(err, errInternal), Equals, true)
 
-	// When node account is active , it is ok to bond
+	// When node account is standby, it can bond
 	msg = NewMsgBond(txIn, k.notEmptyNodeAccount.NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), activeNodeAccount.NodeAddress)
 	_, err = handler.Run(ctx, msg)
 	c.Assert(err, IsNil)
@@ -91,8 +125,8 @@ func (HandlerBondSuite) TestBondHandler_Run(c *C) {
 
 func (HandlerBondSuite) TestBondHandlerFailValidation(c *C) {
 	ctx, k := setupKeeperForTest(c)
-	activeNodeAccount := GetRandomValidatorNode(NodeActive)
-	c.Assert(k.SetNodeAccount(ctx, activeNodeAccount), IsNil)
+	standbyNodeAccount := GetRandomValidatorNode(NodeStandby)
+	c.Assert(k.SetNodeAccount(ctx, standbyNodeAccount), IsNil)
 	handler := NewBondHandler(NewDummyMgrWithKeeper(k))
 	ver := GetCurrentVersion()
 	constAccessor := constants.GetConstantValues(ver)
@@ -116,27 +150,32 @@ func (HandlerBondSuite) TestBondHandlerFailValidation(c *C) {
 	}{
 		{
 			name:        "empty node address",
-			msg:         NewMsgBond(txIn, cosmos.AccAddress{}, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), activeNodeAccount.NodeAddress),
+			msg:         NewMsgBond(txIn, cosmos.AccAddress{}, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), standbyNodeAccount.NodeAddress),
 			expectedErr: se.ErrInvalidAddress,
 		},
 		{
 			name:        "zero bond",
-			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.ZeroUint(), GetRandomBNBAddress(), activeNodeAccount.NodeAddress),
+			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.ZeroUint(), GetRandomBNBAddress(), standbyNodeAccount.NodeAddress),
 			expectedErr: se.ErrUnknownRequest,
 		},
 		{
 			name:        "empty bond address",
-			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), common.Address(""), activeNodeAccount.NodeAddress),
+			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), common.Address(""), standbyNodeAccount.NodeAddress),
 			expectedErr: se.ErrInvalidAddress,
 		},
 		{
 			name:        "empty request hash",
-			msg:         NewMsgBond(txInNoTxID, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), activeNodeAccount.NodeAddress),
+			msg:         NewMsgBond(txInNoTxID, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), standbyNodeAccount.NodeAddress),
 			expectedErr: se.ErrUnknownRequest,
 		},
 		{
 			name:        "empty signer",
 			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeStandby).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), cosmos.AccAddress{}),
+			expectedErr: se.ErrInvalidAddress,
+		},
+		{
+			name:        "active node",
+			msg:         NewMsgBond(txIn, GetRandomValidatorNode(NodeActive).NodeAddress, cosmos.NewUint(uint64(minimumBondInRune)), GetRandomBNBAddress(), cosmos.AccAddress{}),
 			expectedErr: se.ErrInvalidAddress,
 		},
 	}

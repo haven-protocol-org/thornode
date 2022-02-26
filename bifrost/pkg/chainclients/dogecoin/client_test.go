@@ -28,6 +28,11 @@ import (
 	ttypes "gitlab.com/thorchain/thornode/x/thorchain/types"
 )
 
+const (
+	bob      = "bob"
+	password = "password"
+)
+
 func TestPackage(t *testing.T) { TestingT(t) }
 
 type DogecoinSuite struct {
@@ -36,6 +41,7 @@ type DogecoinSuite struct {
 	bridge *thorclient.ThorchainBridge
 	cfg    config.ChainConfiguration
 	m      *metrics.Metrics
+	keys   *thorclient.Keys
 }
 
 var _ = Suite(
@@ -60,12 +66,20 @@ func GetMetricForTest(c *C) *metrics.Metrics {
 	return m
 }
 
+func (s *DogecoinSuite) SetUpSuite(c *C) {
+	ttypes.SetupConfigForTest()
+	kb := cKeys.NewInMemory()
+	_, _, err := kb.NewMnemonic(bob, cKeys.English, cmd.THORChainHDPath, hd.Secp256k1)
+	c.Assert(err, IsNil)
+	s.keys = thorclient.NewKeysWithKeybase(kb, bob, password)
+}
+
 func (s *DogecoinSuite) SetUpTest(c *C) {
 	s.m = GetMetricForTest(c)
 	s.cfg = config.ChainConfiguration{
 		ChainID:     "DOGE",
-		UserName:    "bob",
-		Password:    "password",
+		UserName:    bob,
+		Password:    password,
 		DisableTLS:  true,
 		HTTPostMode: true,
 		BlockScanner: config.BlockScannerConfiguration{
@@ -73,7 +87,6 @@ func (s *DogecoinSuite) SetUpTest(c *C) {
 		},
 	}
 	ns := strconv.Itoa(time.Now().Nanosecond())
-	ttypes.SetupConfigForTest()
 	ctypes.Network = ctypes.TestNetwork
 	c.Assert(os.Setenv("NET", "testnet"), IsNil)
 
@@ -81,16 +94,10 @@ func (s *DogecoinSuite) SetUpTest(c *C) {
 	cfg := config.ClientConfiguration{
 		ChainID:         "thorchain",
 		ChainHost:       "localhost",
-		SignerName:      "bob",
-		SignerPasswd:    "password",
+		SignerName:      bob,
+		SignerPasswd:    password,
 		ChainHomeFolder: thordir,
 	}
-
-	kb := cKeys.NewInMemory()
-	_, _, err := kb.NewMnemonic(cfg.SignerName, cKeys.English, cmd.THORChainHDPath, hd.Secp256k1)
-	c.Assert(err, IsNil)
-	thorKeys := thorclient.NewKeysWithKeybase(kb, cfg.SignerName, cfg.SignerPasswd)
-	c.Assert(err, IsNil)
 
 	s.server = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if req.RequestURI == "/" {
@@ -140,13 +147,17 @@ func (s *DogecoinSuite) SetUpTest(c *C) {
 			c.Assert(err, IsNil)
 		} else if strings.HasPrefix(req.RequestURI, thorclient.AsgardVault) {
 			httpTestHandler(c, rw, "../../../../test/fixtures/endpoints/vaults/asgard.json")
+		} else if req.RequestURI == "/thorchain/mimir/key/MaxUTXOsToSpend" {
+			_, err := rw.Write([]byte(`-1`))
+			c.Assert(err, IsNil)
 		}
 	}))
+	var err error
 	cfg.ChainHost = s.server.Listener.Addr().String()
-	s.bridge, err = thorclient.NewThorchainBridge(cfg, s.m, thorKeys)
+	s.bridge, err = thorclient.NewThorchainBridge(cfg, s.m, s.keys)
 	c.Assert(err, IsNil)
 	s.cfg.RPCHost = s.server.Listener.Addr().String()
-	s.client, err = NewClient(thorKeys, s.cfg, nil, s.bridge, s.m)
+	s.client, err = NewClient(s.keys, s.cfg, nil, s.bridge, s.m)
 	c.Assert(err, IsNil)
 	c.Assert(s.client, NotNil)
 }
@@ -183,8 +194,8 @@ func (s *DogecoinSuite) TestFetchTxs(c *C) {
 	c.Assert(txs.TxArray[0].Tx, Equals, "54ef2f4679fb90af42e8d963a5d85645d0fd86e5fe8ea4e69dbf2d444cb26528")
 	c.Assert(txs.TxArray[0].Sender, Equals, "nfWiQeddE4zsYsDuYhvpgVC7y4gjr5RyqK")
 	c.Assert(txs.TxArray[0].To, Equals, "mv4rnyY3Su5gjcDNzbMLKBQkBicCtHUtFB")
-	c.Assert(txs.TxArray[0].Coins.EqualsEx(common.Coins{common.NewCoin(common.DOGEAsset, cosmos.NewUint(4072503))}), Equals, true)
-	c.Assert(txs.TxArray[0].Gas.Equals(common.Gas{common.NewCoin(common.DOGEAsset, cosmos.NewUint(11083355))}), Equals, true)
+	c.Assert(txs.TxArray[0].Coins.EqualsEx(common.Coins{common.NewCoin(common.DOGEAsset, cosmos.NewUint(407250300))}), Equals, true)
+	c.Assert(txs.TxArray[0].Gas.Equals(common.Gas{common.NewCoin(common.DOGEAsset, cosmos.NewUint(1108335500))}), Equals, true)
 	c.Assert(len(txs.TxArray), Equals, 1)
 }
 
@@ -575,7 +586,7 @@ func (s *DogecoinSuite) TestGetGas(c *C) {
 	}
 	gas, err := s.client.getGas(&tx)
 	c.Assert(err, IsNil)
-	c.Assert(gas.Equals(common.Gas{common.NewCoin(common.DOGEAsset, cosmos.NewUint(7244430))}), Equals, true)
+	c.Assert(gas.Equals(common.Gas{common.NewCoin(common.DOGEAsset, cosmos.NewUint(1946665122))}), Equals, true)
 
 	tx = btcjson.TxRawResult{
 		Vin: []btcjson.Vin{
@@ -628,13 +639,13 @@ func (s *DogecoinSuite) TestGetHeight(c *C) {
 }
 
 func (s *DogecoinSuite) TestGetAccount(c *C) {
-	acct, err := s.client.GetAccount("tthorpub1addwnpepqt7qug8vk9r3saw8n4r803ydj2g3dqwx0mvq5akhnze86fc536xcycgtrnv")
+	acct, err := s.client.GetAccount("tthorpub1addwnpepqt7qug8vk9r3saw8n4r803ydj2g3dqwx0mvq5akhnze86fc536xcycgtrnv", nil)
 	c.Assert(err, IsNil)
 	c.Assert(acct.AccountNumber, Equals, int64(0))
 	c.Assert(acct.Sequence, Equals, int64(0))
 	c.Assert(acct.Coins[0].Amount.Uint64(), Equals, uint64(2502000000))
 
-	acct1, err := s.client.GetAccount("")
+	acct1, err := s.client.GetAccount("", nil)
 	c.Assert(err, NotNil)
 	c.Assert(acct1.AccountNumber, Equals, int64(0))
 	c.Assert(acct1.Sequence, Equals, int64(0))
@@ -795,7 +806,7 @@ func (s *DogecoinSuite) TestConfirmationCountReady(c *C) {
 		Filtered: true,
 		MemPool:  true,
 	}), Equals, true)
-	s.client.currentBlockHeight = 3
+	s.client.currentBlockHeight.Store(3)
 	c.Assert(s.client.ConfirmationCountReady(types.TxIn{
 		Chain: common.DOGEChain,
 		TxArray: []types.TxInItem{
@@ -926,7 +937,7 @@ func (s *DogecoinSuite) TestGetConfirmationCount(c *C) {
 		Filtered:             true,
 		MemPool:              false,
 		ConfirmationRequired: 0,
-	}), Equals, int64(1))
+	}), Equals, int64(0))
 
 	c.Assert(s.client.GetConfirmationCount(types.TxIn{
 		Chain: common.DOGEChain,
@@ -937,7 +948,7 @@ func (s *DogecoinSuite) TestGetConfirmationCount(c *C) {
 				Sender:      "bc1q0s4mg25tu6termrk8egltfyme4q7sg3h0e56p3",
 				To:          "bc1q2gjc0rnhy4nrxvuklk6ptwkcs9kcr59mcl2q9j",
 				Coins: common.Coins{
-					common.NewCoin(common.DOGEAsset, cosmos.NewUint(1234560000)),
+					common.NewCoin(common.DOGEAsset, cosmos.NewUint(123456000000)),
 				},
 				Memo:                "MEMO",
 				ObservedVaultPubKey: pkey,
@@ -946,7 +957,7 @@ func (s *DogecoinSuite) TestGetConfirmationCount(c *C) {
 		Filtered:             true,
 		MemPool:              false,
 		ConfirmationRequired: 0,
-	}), Equals, int64(5))
+	}), Equals, int64(20))
 }
 
 func (s *DogecoinSuite) TestGetOutput(c *C) {

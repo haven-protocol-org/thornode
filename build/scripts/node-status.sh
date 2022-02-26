@@ -42,7 +42,7 @@ PREFLIGHT=$(echo "$JSON" | jq -r ".preflight_status")
 
 if [ "$VALIDATOR" = "true" ]; then
   # calculate BNB chain sync progress
-  if [ "$NET" = "mainnet" ]; then # Seeds from https://docs.binance.org/smart-chain/developer/rpc.html
+  if [ "$NET" = "mainnet" ] || [ "$NET" = "stagenet" ]; then # Seeds from https://docs.binance.org/smart-chain/developer/rpc.html
     BNB_PEERS='https://dataseed1.binance.org https://dataseed2.binance.org https://dataseed3.binance.org https://dataseed4.binance.org'
   else
     BNB_PEERS='http://data-seed-pre-0-s1.binance.org http://data-seed-pre-1-s1.binance.org http://data-seed-pre-2-s1.binance.org http://data-seed-pre-0-s3.binance.org http://data-seed-pre-1-s3.binance.org'
@@ -99,6 +99,14 @@ if [ "$VALIDATOR" = "true" ]; then
     DOGE_PROGRESS=$(echo "$DOGE_RESULT" | jq -r ".result.verificationprogress")
     DOGE_PROGRESS=$(calc_progress "$DOGE_SYNC_HEIGHT" "$DOGE_HEIGHT" "$DOGE_PROGRESS")
   fi
+
+  # calculate Terra chain sync progress
+  if [ -n "$TERRA_DAEMON_SERVICE_PORT_RPC" ]; then
+    TERRA_HEIGHT=$(curl -sL --fail -m 10 https://lcd.terra.dev/blocks/latest | jq -e -r ".block.header.height")
+    TERRA_SYNC_HEIGHT=$(curl -sL --fail -m 10 terra-daemon:"$TERRA_DAEMON_SERVICE_PORT_RPC"/status | jq -r ".result.sync_info.latest_block_height")
+    TERRA_PROGRESS=$(calc_progress "$TERRA_SYNC_HEIGHT" "$TERRA_HEIGHT")
+  fi
+
 fi
 
 # calculate THOR chain sync progress
@@ -152,5 +160,8 @@ printf "%-11s %-10s %-10s\n" THOR "$THOR_PROGRESS" "$(format_int "$THOR_SYNC_HEI
 [ "$VALIDATOR" = "true" ] && printf "%-11s %-10s %-10s\n" BCH "$BCH_PROGRESS" "$(format_int "$BCH_SYNC_HEIGHT")/$(format_int "$BCH_HEIGHT")"
 if [ "$VALIDATOR" = "true" ] && [ -n "$DOGECOIN_DAEMON_SERVICE_PORT_RPC" ]; then
   printf "%-11s %-10s %-10s\n" DOGE "$DOGE_PROGRESS" "$(format_int "$DOGE_SYNC_HEIGHT")/$(format_int "$DOGE_HEIGHT")"
+fi
+if [ "$VALIDATOR" = "true" ] && [ -n "$TERRA_DAEMON_SERVICE_PORT_RPC" ]; then
+  printf "%-11s %-10s %-10s\n" TERRA "$TERRA_PROGRESS" "$(format_int "$TERRA_SYNC_HEIGHT")/$(format_int "$TERRA_HEIGHT")"
 fi
 exit 0

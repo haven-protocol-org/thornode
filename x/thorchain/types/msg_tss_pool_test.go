@@ -61,7 +61,7 @@ func (s *MsgTssPoolSuite) TestMsgTssPool(c *C) {
 	c.Assert(err1, NotNil)
 	c.Check(errors.Is(err1, se.ErrUnknownRequest), Equals, true)
 
-	msg2, err := NewMsgTssPool(append(pks, ""), pk, "", KeygenType_AsgardKeygen, 1, Blame{}, chains, addr, keygenTime)
+	msg2, err := NewMsgTssPool(append(pks), pk, "", KeygenType_AsgardKeygen, 1, Blame{}, chains, addr, keygenTime)
 	c.Assert(err, IsNil)
 	err2 := msg2.ValidateBasic()
 	c.Assert(err2, NotNil)

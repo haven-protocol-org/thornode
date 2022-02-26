@@ -235,7 +235,7 @@ func (s *HandlerTssSuite) TestTssHandler(c *C) {
 		{
 			name: "there are empty pubkeys in member pubkey should return an error",
 			messageCreator: func(helper tssHandlerTestHelper) cosmos.Msg {
-				tssMsg, err := NewMsgTssPool([]string{GetRandomPubKey().String(), GetRandomPubKey().String(), ""}, GetRandomPubKey(), "", AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), helper.signer, keygenTime)
+				tssMsg, err := NewMsgTssPool([]string{GetRandomPubKey().String(), GetRandomPubKey().String()}, GetRandomPubKey(), "", AsgardKeygen, common.BlockHeight(helper.ctx), Blame{}, common.Chains{common.RuneAsset().Chain}.Strings(), helper.signer, keygenTime)
 				c.Assert(err, IsNil)
 				return tssMsg
 			},

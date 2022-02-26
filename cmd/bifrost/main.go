@@ -37,9 +37,9 @@ import (
 	"gitlab.com/thorchain/thornode/common/cosmos"
 
 	mnTssCommon "github.com/akildemir/moneroTss/common"
+	"github.com/akildemir/moneroTss/conversion"
 	moneroP2P "github.com/akildemir/moneroTss/p2p"
 	mnTss "github.com/akildemir/moneroTss/tss"
-	"github.com/akildemir/moneroTss/conversion"
 
 	"github.com/akildemir/go-tss/p2p"
 	"github.com/akildemir/go-tss/storage"

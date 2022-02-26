@@ -595,5 +595,4 @@ func (TypeObservedTxSuite) TestNewGetConsensusTx(c *C) {
 	txGood := voter.GetTx(trusts4)
 	c.Assert(txGood.IsEmpty(), Equals, false)
 	c.Assert(txGood.Equals(obTx3), Equals, true)
-
 }

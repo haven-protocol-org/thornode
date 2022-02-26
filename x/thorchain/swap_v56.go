@@ -65,7 +65,8 @@ func (s *SwapperV56) swap(ctx cosmos.Context,
 	target common.Asset,
 	destination common.Address,
 	swapTarget cosmos.Uint,
-	transactionFee cosmos.Uint, synthVirtualDepthMult int64, mgr Manager) (cosmos.Uint, []*EventSwap, error) {
+	transactionFee cosmos.Uint, synthVirtualDepthMult int64, mgr Manager,
+) (cosmos.Uint, []*EventSwap, error) {
 	var swapEvents []*EventSwap
 
 	if err := s.validateMessage(tx, target, destination); err != nil {
@@ -136,6 +137,7 @@ func (s *SwapperV56) swap(ctx cosmos.Context,
 	// persistent pools to the key value store as the next step will be trying to add TxOutItem
 	// during AddTxOutItem , it will try to take some asset from the emitted asset, and add it back to pool
 	// thus it put some asset back to compensate gas
+	// analyze-ignore(map-iteration): fixed in later versions
 	for _, pool := range s.pools {
 		if err := keeper.SetPool(ctx, pool); err != nil {
 			return cosmos.ZeroUint(), swapEvents, errSwapFail
@@ -157,6 +159,7 @@ func (s *SwapperV56) swap(ctx cosmos.Context,
 	if err != nil {
 		// when it fail to send out the txout item , thus let's restore the pool balance here , thus nothing happen to the pool
 		// given the previous pool status is already in memory, so here just apply it again
+		// analyze-ignore(map-iteration): fixed in later versions
 		for _, pool := range s.poolsOrig {
 			if err := keeper.SetPool(ctx, pool); err != nil {
 				return cosmos.ZeroUint(), swapEvents, errSwapFail
@@ -213,7 +216,8 @@ func (s *SwapperV56) swapOne(ctx cosmos.Context,
 	destination common.Address,
 	swapTarget cosmos.Uint,
 	transactionFee cosmos.Uint,
-	synthVirtualDepthMult int64) (amt cosmos.Uint, evt *EventSwap, swapErr error) {
+	synthVirtualDepthMult int64,
+) (amt cosmos.Uint, evt *EventSwap, swapErr error) {
 	source := tx.Coins[0].Asset
 	amount := tx.Coins[0].Amount
 

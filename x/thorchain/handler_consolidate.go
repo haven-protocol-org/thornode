@@ -1,9 +1,14 @@
 package thorchain
 
 import (
+	"context"
+
+	"github.com/armon/go-metrics"
 	"github.com/blang/semver"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 
 	"gitlab.com/thorchain/thornode/common/cosmos"
+	"gitlab.com/thorchain/thornode/constants"
 )
 
 // ConsolidateHandler handles transactions the network sends to itself, to consolidate UTXOs
@@ -49,6 +54,12 @@ func (h ConsolidateHandler) validateV1(ctx cosmos.Context, msg MsgConsolidate) e
 
 func (h ConsolidateHandler) slash(ctx cosmos.Context, tx ObservedTx) error {
 	toSlash := tx.Tx.Coins.Adds(tx.Tx.Gas.ToCoins())
+
+	ctx = ctx.WithContext(context.WithValue(ctx.Context(), constants.CtxMetricLabels, []metrics.Label{
+		telemetry.NewLabel("reason", "failed_consolidation"),
+		telemetry.NewLabel("chain", string(tx.Tx.Chain)),
+	}))
+
 	return h.mgr.Slasher().SlashVault(ctx, tx.ObservedPubKey, toSlash, h.mgr)
 }
 
@@ -58,11 +69,9 @@ func (h ConsolidateHandler) handle(ctx cosmos.Context, msg MsgConsolidate) (*cos
 		return h.handleV1(ctx, msg)
 	}
 	return nil, errBadVersion
-
 }
 
 func (h ConsolidateHandler) handleV1(ctx cosmos.Context, msg MsgConsolidate) (*cosmos.Result, error) {
-
 	shouldSlash := false
 
 	// ensure transaction is sending to/from same address

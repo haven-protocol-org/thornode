@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/runners"
 	"gitlab.com/thorchain/thornode/bifrost/pkg/chainclients/signercache"
 
 	tssp "github.com/akildemir/go-tss/tss"
@@ -46,24 +47,25 @@ var blockReward *big.Int = big.NewInt(2e18) // in Wei
 
 // Client is a structure to sign and broadcast tx to Ethereum chain used by signer mostly
 type Client struct {
-	logger              zerolog.Logger
-	cfg                 config.ChainConfiguration
-	localPubKey         common.PubKey
-	client              *ethclient.Client
-	kw                  *keySignWrapper
-	ethScanner          *ETHScanner
-	bridge              *thorclient.ThorchainBridge
-	blockScanner        *blockscanner.BlockScanner
-	vaultABI            *abi.ABI
-	pubkeyMgr           pubkeymanager.PubKeyValidator
-	poolMgr             thorclient.PoolManager
-	asgardAddresses     []common.Address
-	lastAsgard          time.Time
-	tssKeySigner        *tss.KeySign
-	wg                  *sync.WaitGroup
-	stopchan            chan struct{}
-	globalSolvencyQueue chan stypes.Solvency
-	signerCacheManager  *signercache.CacheManager
+	logger                  zerolog.Logger
+	cfg                     config.ChainConfiguration
+	localPubKey             common.PubKey
+	client                  *ethclient.Client
+	kw                      *keySignWrapper
+	ethScanner              *ETHScanner
+	bridge                  *thorclient.ThorchainBridge
+	blockScanner            *blockscanner.BlockScanner
+	vaultABI                *abi.ABI
+	pubkeyMgr               pubkeymanager.PubKeyValidator
+	poolMgr                 thorclient.PoolManager
+	asgardAddresses         []common.Address
+	lastAsgard              time.Time
+	tssKeySigner            *tss.KeySign
+	wg                      *sync.WaitGroup
+	stopchan                chan struct{}
+	globalSolvencyQueue     chan stypes.Solvency
+	signerCacheManager      *signercache.CacheManager
+	lastSolvencyCheckHeight int64
 }
 
 // NewClient create new instance of Ethereum client
@@ -73,7 +75,8 @@ func NewClient(thorKeys *thorclient.Keys,
 	bridge *thorclient.ThorchainBridge,
 	m *metrics.Metrics,
 	pubkeyMgr pubkeymanager.PubKeyValidator,
-	poolMgr thorclient.PoolManager) (*Client, error) {
+	poolMgr thorclient.PoolManager,
+) (*Client, error) {
 	if thorKeys == nil {
 		return nil, fmt.Errorf("fail to create ETH client,thor keys is empty")
 	}
@@ -161,7 +164,7 @@ func NewClient(thorKeys *thorclient.Keys,
 	}
 
 	c.signerCacheManager = signerCacheManager
-	c.ethScanner, err = NewETHScanner(c.cfg.BlockScanner, storage, chainID, c.client, c.bridge, m, pubkeyMgr, c.reportSolvency, signerCacheManager)
+	c.ethScanner, err = NewETHScanner(c.cfg.BlockScanner, storage, chainID, c.client, c.bridge, m, pubkeyMgr, c.ReportSolvency, signerCacheManager)
 	if err != nil {
 		return c, fmt.Errorf("fail to create eth block scanner: %w", err)
 	}
@@ -192,6 +195,8 @@ func (c *Client) Start(globalTxsQueue chan stypes.TxIn, globalErrataQueue chan s
 	c.blockScanner.Start(globalTxsQueue)
 	c.wg.Add(1)
 	go c.unstuck()
+	c.wg.Add(1)
+	go runners.SolvencyCheckRunner(c.GetChain(), c, c.bridge, c.stopchan, c.wg)
 }
 
 // Stop ETH client
@@ -481,7 +486,12 @@ func (c *Client) SignTx(tx stypes.TxOutItem, height int64) ([]byte, error) {
 	createdTx := etypes.NewTransaction(nonce, ecommon.HexToAddress(contractAddr.String()), estimatedETHValue, MaxContractGas, gasRate, data)
 	estimatedGas, err := c.estimateGas(fromAddr.String(), createdTx)
 	if err != nil {
-		return nil, fmt.Errorf("fail to estimate gas: %w", err)
+		// in an edge case that vault doesn't have enough fund to fulfill an outbound transaction , it will fail to estimate gas
+		// the returned error is `execution reverted`
+		// when this fail , chain client should skip the outbound and move on to the next. The network will reschedule the outbound
+		// after 300 blocks
+		c.logger.Err(err).Msgf("fail to estimate gas")
+		return nil, nil
 	}
 	c.logger.Info().Msgf("memo:%s estimated gas unit: %d", tx.Memo, estimatedGas)
 
@@ -556,11 +566,11 @@ func (c *Client) sign(tx *etypes.Transaction, poolPubKey common.PubKey, height i
 }
 
 // GetBalance call smart contract to find out the balance of the given address and token
-func (c *Client) GetBalance(addr, token string) (*big.Int, error) {
+func (c *Client) GetBalance(addr, token string, height *big.Int) (*big.Int, error) {
 	ctx, cancel := c.getContext()
 	defer cancel()
 	if IsETH(token) {
-		return c.client.BalanceAt(ctx, ecommon.HexToAddress(addr), nil)
+		return c.client.BalanceAt(ctx, ecommon.HexToAddress(addr), height)
 	}
 	contractAddresses := c.pubkeyMgr.GetContracts(common.ETHChain)
 	if len(contractAddresses) == 0 {
@@ -576,7 +586,7 @@ func (c *Client) GetBalance(addr, token string) (*big.Int, error) {
 		From: ecommon.HexToAddress(addr),
 		To:   &toAddr,
 		Data: input,
-	}, nil)
+	}, height)
 	if err != nil {
 		return nil, err
 	}
@@ -589,7 +599,7 @@ func (c *Client) GetBalance(addr, token string) (*big.Int, error) {
 }
 
 // GetBalances gets all the balances of the given address
-func (c *Client) GetBalances(addr string) (common.Coins, error) {
+func (c *Client) GetBalances(addr string, height *big.Int) (common.Coins, error) {
 	// for all the tokens , this chain client have deal with before
 	tokens, err := c.ethScanner.GetTokens()
 	if err != nil {
@@ -597,7 +607,7 @@ func (c *Client) GetBalances(addr string) (common.Coins, error) {
 	}
 	coins := common.Coins{}
 	for _, token := range tokens {
-		balance, err := c.GetBalance(addr, token.Address)
+		balance, err := c.GetBalance(addr, token.Address, height)
 		if err != nil {
 			c.logger.Err(err).Msgf("fail to get balance for token:%s", token.Address)
 			continue
@@ -617,13 +627,13 @@ func (c *Client) GetBalances(addr string) (common.Coins, error) {
 }
 
 // GetAccount gets account by address in eth client
-func (c *Client) GetAccount(pk common.PubKey) (common.Account, error) {
+func (c *Client) GetAccount(pk common.PubKey, height *big.Int) (common.Account, error) {
 	addr := c.GetAddress(pk)
 	nonce, err := c.GetNonce(addr)
 	if err != nil {
 		return common.Account{}, err
 	}
-	coins, err := c.GetBalances(addr)
+	coins, err := c.GetBalances(addr, height)
 	if err != nil {
 		return common.Account{}, err
 	}
@@ -632,12 +642,12 @@ func (c *Client) GetAccount(pk common.PubKey) (common.Account, error) {
 }
 
 // GetAccountByAddress return account information
-func (c *Client) GetAccountByAddress(address string) (common.Account, error) {
+func (c *Client) GetAccountByAddress(address string, height *big.Int) (common.Account, error) {
 	nonce, err := c.GetNonce(address)
 	if err != nil {
 		return common.Account{}, err
 	}
-	coins, err := c.GetBalances(address)
+	coins, err := c.GetBalances(address, height)
 	if err != nil {
 		return common.Account{}, err
 	}
@@ -844,8 +854,8 @@ func (c *Client) OnObservedTxIn(txIn stypes.TxInItem, blockHeight int64) {
 	}
 }
 
-func (c *Client) reportSolvency(ethBlockHeight int64) error {
-	if ethBlockHeight%20 != 0 {
+func (c *Client) ReportSolvency(ethBlockHeight int64) error {
+	if !c.ShouldReportSolvency(ethBlockHeight) {
 		return nil
 	}
 	asgardVaults, err := c.bridge.GetAsgards()
@@ -853,7 +863,7 @@ func (c *Client) reportSolvency(ethBlockHeight int64) error {
 		return fmt.Errorf("fail to get asgards,err: %w", err)
 	}
 	for _, asgard := range asgardVaults {
-		acct, err := c.GetAccount(asgard.PubKey)
+		acct, err := c.GetAccount(asgard.PubKey, new(big.Int).SetInt64(ethBlockHeight))
 		if err != nil {
 			c.logger.Err(err).Msgf("fail to get account balance")
 			continue
@@ -869,5 +879,11 @@ func (c *Client) reportSolvency(ethBlockHeight int64) error {
 			c.logger.Info().Msgf("fail to send solvency info to THORChain, timeout")
 		}
 	}
+	c.lastSolvencyCheckHeight = ethBlockHeight
 	return nil
+}
+
+// ShouldReportSolvency with given block height , should chain client report Solvency to THORNode?
+func (c *Client) ShouldReportSolvency(height int64) bool {
+	return height%20 == 0
 }

@@ -51,12 +51,15 @@ func mockAssetResolver(token string) (common.Asset, error) {
 	}
 	return common.NewAsset(token)
 }
+
 func mockTokenDecimalResolver(_ string) int64 {
 	return 8
 }
+
 func mockAmountConverter(_ string, amt *big.Int) cosmos.Uint {
 	return cosmos.NewUintFromBigInt(amt)
 }
+
 func (t *SmartContractLogParserTestSuite) getDepositEvent(smartContractAddr string, to string, asset string, amount *big.Int, memo string) *etypes.Log {
 	evt, err := t.abi.EventByID(ecommon.HexToHash(depositEvent))
 	if err != nil {
@@ -335,8 +338,8 @@ func (t *SmartContractLogParserTestSuite) TestGetTxInItem_TransferOutEvents(c *C
 	c.Assert(txInItem.To, Equals, "")
 	c.Assert(txInItem.Memo, Equals, "")
 	c.Assert(txInItem.Coins.IsEmpty(), Equals, true)
-
 }
+
 func (t *SmartContractLogParserTestSuite) TestGetTxInItem_TransferAllowance(c *C) {
 	vaultABI, _, err := getContractABI()
 	c.Assert(err, IsNil)
@@ -686,8 +689,8 @@ func (t *SmartContractLogParserTestSuite) TestFakeDeposit(c *C) {
 	}, txInItem)
 	c.Assert(isVaultTransfer, Equals, false)
 	c.Assert(err, NotNil)
-
 }
+
 func (t *SmartContractLogParserTestSuite) TestFakeTransferOut(c *C) {
 	vaultABI, _, err := getContractABI()
 	c.Assert(err, IsNil)

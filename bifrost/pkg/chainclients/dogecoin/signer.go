@@ -35,7 +35,7 @@ const (
 	MinUTXOConfirmation        = 1
 	defaultMaxDOGEFeeRate      = dogutil.SatoshiPerBitcoin * 10
 	maxUTXOsToSpend            = 10
-	minSpendableUTXOAmountSats = 10000 // If UTXO is less than this , it will not observed , and will not spend it either
+	minSpendableUTXOAmountSats = 100000000 // If UTXO is less than this , it will not observed , and will not spend it either
 )
 
 func getDOGEPrivateKey(key cryptotypes.PrivKey) (*btcec.PrivateKey, error) {
@@ -51,6 +51,8 @@ func (c *Client) getChainCfg() *chaincfg.Params {
 	case common.TestNet:
 		return &chaincfg.TestNet3Params
 	case common.MainNet:
+		return &chaincfg.MainNetParams
+	case common.StageNet:
 		return &chaincfg.MainNetParams
 	}
 	return nil
@@ -123,6 +125,7 @@ func (c *Client) getUtxoToSpend(pubKey common.PubKey, total float64) ([]btcjson.
 	minUTXOAmt := dogutil.Amount(minSpendableUTXOAmountSats).ToBTC()
 	for _, item := range utxos {
 		if !c.isValidUTXO(item.ScriptPubKey) {
+			c.logger.Info().Msgf("invalid UTXO , can't spent it")
 			continue
 		}
 		isSelfTx := c.isSelfTransaction(item.TxID)
@@ -330,9 +333,9 @@ func (c *Client) SignTx(tx stypes.TxOutItem, thorchainHeight int64) ([]byte, err
 		if err != nil {
 			return nil, fmt.Errorf("fail to parse memo: %w", err)
 		}
-		if memo.GetType() == mem.TxYggdrasilReturn {
+		if memo.GetType() == mem.TxYggdrasilReturn || memo.GetType() == mem.TxConsolidate {
 			gap := gasAmtSats
-			c.logger.Info().Msgf("yggdrasil return asset , need gas: %d", gap)
+			c.logger.Info().Msgf("yggdrasil return asset or consolidate tx, need gas: %d", gap)
 			coinToCustomer.Amount = common.SafeSub(coinToCustomer.Amount, cosmos.NewUint(gap))
 		}
 	}
@@ -487,7 +490,7 @@ func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) (string, er
 func (c *Client) consolidateUTXOs() {
 	defer func() {
 		c.wg.Done()
-		c.consolidateInProgress = false
+		c.consolidateInProgress.Store(false)
 	}()
 
 	nodeStatus, err := c.bridge.FetchNodeStatus()
@@ -506,6 +509,10 @@ func (c *Client) consolidateUTXOs() {
 	}
 	utxosToSpend := c.getMaximumUtxosToSpend()
 	for _, vault := range vaults {
+		if !vault.Contains(c.nodePubKey) {
+			// Not part of this vault , don't need to consolidate UTXOs for this Vault
+			continue
+		}
 		// the amount used here doesn't matter , just to see whether there are more than 15 UTXO available or not
 		utxos, err := c.getUtxoToSpend(vault.PubKey, 0.01)
 		if err != nil {
@@ -522,14 +529,14 @@ func (c *Client) consolidateUTXOs() {
 		}
 		addr, err := vault.PubKey.GetAddress(common.DOGEChain)
 		if err != nil {
-			c.logger.Err(err).Msgf("fail to get BTC address for pubkey:%s", vault.PubKey)
+			c.logger.Err(err).Msgf("fail to get DOGE address for pubkey:%s", vault.PubKey)
 			continue
 		}
 		// THORChain usually pay 1.5 of the last observed fee rate
 		feeRate := math.Ceil(float64(c.lastFeeRate) * 3 / 2)
 		amt, err := dogutil.NewAmount(total)
 		if err != nil {
-			c.logger.Err(err).Msgf("fail to convert to BTC amount: %f", total)
+			c.logger.Err(err).Msgf("fail to convert to DOGE amount: %f", total)
 			continue
 		}
 
@@ -540,7 +547,7 @@ func (c *Client) consolidateUTXOs() {
 			Coins: common.Coins{
 				common.NewCoin(common.DOGEAsset, cosmos.NewUint(uint64(amt))),
 			},
-			Memo:    "consolidate",
+			Memo:    mem.NewConsolidateMemo().String(),
 			MaxGas:  nil,
 			GasRate: int64(feeRate),
 		}

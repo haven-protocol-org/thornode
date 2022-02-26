@@ -159,7 +159,7 @@ func InitGenesis(ctx cosmos.Context, keeper keeper.Keeper, data GenesisState) []
 		keeper.SetObservedTxOutVoter(ctx, voter)
 	}
 
-	for idx, _ := range data.TxOuts {
+	for idx := range data.TxOuts {
 		if err := keeper.SetTxOut(ctx, &data.TxOuts[idx]); err != nil {
 			ctx.Logger().Error("fail to save tx out during genesis", "error", err)
 			panic(err)
@@ -348,6 +348,7 @@ func ExportGenesis(ctx cosmos.Context, k keeper.Keeper) GenesisState {
 		panic(err)
 	}
 	lastChainHeights := make([]LastChainHeight, 0)
+	// analyze-ignore(map-iteration)
 	for k, v := range chainHeights {
 		lastChainHeights = append(lastChainHeights, LastChainHeight{
 			Chain:  k.String(),

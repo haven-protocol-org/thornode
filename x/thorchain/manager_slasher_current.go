@@ -1,8 +1,12 @@
 package thorchain
 
 import (
+	"context"
 	"fmt"
+	"math/big"
 
+	"github.com/armon/go-metrics"
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
 
@@ -74,6 +78,17 @@ func (s *SlasherV75) HandleDoubleSign(ctx cosmos.Context, addr crypto.Address, i
 			if slashAmount.GT(na.Bond) {
 				slashAmount = na.Bond
 			}
+
+			slashFloat, _ := new(big.Float).SetInt(slashAmount.BigInt()).Float32()
+			telemetry.IncrCounterWithLabels(
+				[]string{"thornode", "bond_slash"},
+				slashFloat,
+				[]metrics.Label{
+					telemetry.NewLabel("address", addr.String()),
+					telemetry.NewLabel("reason", "double_sign"),
+				},
+			)
+
 			na.Bond = common.SafeSub(na.Bond, slashAmount)
 			coin := common.NewCoin(common.RuneNative, slashAmount)
 			if err := s.keeper.SendFromModuleToModule(ctx, BondName, ReserveName, common.NewCoins(coin)); err != nil {
@@ -167,7 +182,10 @@ func (s *SlasherV75) checkSignerAndSlash(ctx cosmos.Context, nodes NodeAccounts,
 		// this na is not found, therefore it should be slashed
 		if !found {
 			lackOfObservationPenalty := constAccessor.GetInt64Value(constants.LackOfObservationPenalty)
-			if err := s.keeper.IncNodeAccountSlashPoints(ctx, na.NodeAddress, lackOfObservationPenalty); err != nil {
+			slashCtx := ctx.WithContext(context.WithValue(ctx.Context(), constants.CtxMetricLabels, []metrics.Label{
+				telemetry.NewLabel("reason", "not_observing"),
+			}))
+			if err := s.keeper.IncNodeAccountSlashPoints(slashCtx, na.NodeAddress, lackOfObservationPenalty); err != nil {
 				ctx.Logger().Error("fail to inc slash points", "error", err)
 			}
 		}
@@ -207,10 +225,15 @@ func (s *SlasherV75) LackSigning(ctx cosmos.Context, constAccessor constants.Con
 					ctx.Logger().Error("Unable to get node account", "error", err, "vault pub key", tx.VaultPubKey.String())
 					continue
 				}
-				if err := s.keeper.IncNodeAccountSlashPoints(ctx, na.NodeAddress, signingTransPeriod*2); err != nil {
+				slashPoints := signingTransPeriod * 2
+
+				slashCtx := ctx.WithContext(context.WithValue(ctx.Context(), constants.CtxMetricLabels, []metrics.Label{
+					telemetry.NewLabel("reason", "not_signing"),
+				}))
+				if err := s.keeper.IncNodeAccountSlashPoints(slashCtx, na.NodeAddress, slashPoints); err != nil {
 					ctx.Logger().Error("fail to inc slash points", "error", err, "node addr", na.NodeAddress.String())
 				}
-				if err := mgr.EventMgr().EmitEvent(ctx, NewEventSlashPoint(na.NodeAddress, signingTransPeriod*2, fmt.Sprintf("fail to sign out tx after %d blocks", signingTransPeriod))); err != nil {
+				if err := mgr.EventMgr().EmitEvent(ctx, NewEventSlashPoint(na.NodeAddress, slashPoints, fmt.Sprintf("fail to sign out tx after %d blocks", signingTransPeriod))); err != nil {
 					ctx.Logger().Error("fail to emit slash point event")
 				}
 				releaseHeight := common.BlockHeight(ctx) + (signingTransPeriod * 2)
@@ -364,6 +387,8 @@ func (s *SlasherV75) SlashVault(ctx cosmos.Context, vaultPK common.PubKey, coins
 		totalBond = totalBond.Add(na.Bond)
 	}
 
+	metricLabels, _ := ctx.Context().Value(constants.CtxMetricLabels).([]metrics.Label)
+
 	for _, coin := range coins {
 		if coin.IsEmpty() {
 			continue
@@ -386,7 +411,7 @@ func (s *SlasherV75) SlashVault(ctx cosmos.Context, vaultPK common.PubKey, coins
 			if coinAmount.GT(pool.BalanceAsset) {
 				coinAmount = pool.BalanceAsset
 			}
-			runeValue := pool.AssetValueInRuneWithSlip(coinAmount)
+			runeValue := pool.RuneReimbursementForAssetWithdrawal(coinAmount)
 			totalSlashAmountInRune = runeValue.MulUint64(3).QuoUint64(2)
 			pool.BalanceAsset = common.SafeSub(pool.BalanceAsset, coinAmount)
 			pool.BalanceRune = pool.BalanceRune.Add(runeValue)
@@ -434,6 +459,20 @@ func (s *SlasherV75) SlashVault(ctx cosmos.Context, vaultPK common.PubKey, coins
 			if err := s.eventMgr.EmitEvent(ctx, bondEvent); err != nil {
 				return fmt.Errorf("fail to emit bond event: %w", err)
 			}
+
+			slashAmountRuneFloat, _ := new(big.Float).SetInt(slashAmountRune.BigInt()).Float32()
+			telemetry.IncrCounterWithLabels(
+				[]string{"thornode", "bond_slash"},
+				slashAmountRuneFloat,
+				append(
+					metricLabels,
+					telemetry.NewLabel("address", na.NodeAddress.String()),
+					telemetry.NewLabel("coin_symbol", coin.Asset.Symbol.String()),
+					telemetry.NewLabel("coin_chain", string(coin.Asset.Chain)),
+					telemetry.NewLabel("vault_type", vault.Type.String()),
+					telemetry.NewLabel("vault_status", vault.Status.String()),
+				),
+			)
 
 			// Ban the node account. Ensure we don't ban more than 1/3rd of any
 			// given active or retiring vault
@@ -486,7 +525,6 @@ func (s *SlasherV75) SlashVault(ctx cosmos.Context, vaultPK common.PubKey, coins
 			if err := s.keeper.SendFromModuleToModule(ctx, BondName, ReserveName, common.NewCoins(common.NewCoin(common.RuneAsset(), runeToReserve))); err != nil {
 				ctx.Logger().Error("fail to send slash funds to reserve module", "pk", vaultPK, "error", err)
 			}
-
 		}
 		if !runeToAsgard.IsZero() {
 			if err := s.keeper.SendFromModuleToModule(ctx, BondName, AsgardName, common.NewCoins(common.NewCoin(common.RuneAsset(), runeToAsgard))); err != nil {

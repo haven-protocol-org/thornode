@@ -51,6 +51,8 @@ func (c *Client) getChainCfg() *chaincfg.Params {
 		return &chaincfg.TestNet4Params
 	case common.MainNet:
 		return &chaincfg.MainNetParams
+	case common.StageNet:
+		return &chaincfg.MainNetParams
 	}
 	return nil
 }
@@ -479,7 +481,7 @@ func (c *Client) BroadcastTx(txOut stypes.TxOutItem, payload []byte) (string, er
 func (c *Client) consolidateUTXOs() {
 	defer func() {
 		c.wg.Done()
-		c.consolidateInProgress = false
+		c.consolidateInProgress.Store(false)
 	}()
 
 	nodeStatus, err := c.bridge.FetchNodeStatus()
@@ -498,6 +500,10 @@ func (c *Client) consolidateUTXOs() {
 	}
 	utxosToSpend := c.getMaximumUtxosToSpend()
 	for _, vault := range vaults {
+		if !vault.Contains(c.nodePubKey) {
+			// Not part of this vault , don't need to consolidate UTXOs for this Vault
+			continue
+		}
 		// the amount used here doesn't matter , just to see whether there are more than 15 UTXO available or not
 		utxos, err := c.getUtxoToSpend(vault.PubKey, 0.01)
 		if err != nil {

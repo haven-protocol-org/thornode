@@ -22,6 +22,7 @@ ETH_START_BLOCK_HEIGHT="${ETH_START_BLOCK_HEIGHT:=0}"
 # Dogecoin chain config
 DOGE_HOST="${DOGE_HOST:=dogecoin-regtest:18332}"
 DOGE_START_BLOCK_HEIGHT="${DOGE_START_BLOCK_HEIGHT:=0}"
+DOGE_DISABLED="${DOGE_DISABLED:=false}"
 
 # Bitcoin Cash chain config
 BCH_HOST="${BCH_HOST:=bitcoin-cash-regtest:18443}"
@@ -43,6 +44,8 @@ CONTRACT="${CONTRACT:=0x8c2A90D36Ec9F745C9B28B588Cba5e2A978A1656}"
 RPC_USER="${RPC_USER:=thorchain}"
 RPC_PASSWD="${RPC_PASSWD:=password}"
 
+PPROF_ENABLED="${PPROF_ENABLED:=false}"
+
 THOR_BLOCK_TIME="${THOR_BLOCK_TIME:=5s}"
 BLOCK_SCANNER_BACKOFF="${BLOCK_SCANNER_BACKOFF:=5s}"
 . "$(dirname "$0")/core.sh"
@@ -51,24 +54,24 @@ BLOCK_SCANNER_BACKOFF="${BLOCK_SCANNER_BACKOFF:=5s}"
 create_thor_user "$SIGNER_NAME" "$SIGNER_PASSWD" "$SIGNER_SEED_PHRASE"
 
 if [ -n "$PEER" ]; then
-  OLD_IFS=$IFS
-  IFS=","
-  SEED_LIST=""
-  for SEED in $PEER; do
-    # check if we have a hostname we extract the IP
-    if ! expr "$SEED" : '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
-      SEED=$(host "$SEED" | awk '{print $4}')
-    fi
-    SEED_ID=$(curl -m 10 -sL --fail "http://$SEED:6040/p2pid") || continue
-    SEED="/ip4/$SEED/tcp/5040/ipfs/$SEED_ID"
-    if [ -z "$SEED_LIST" ]; then
-      SEED_LIST="\"$SEED\""
-    else
-      SEED_LIST="$SEED_LIST,\"$SEED\""
-    fi
-  done
-  IFS=$OLD_IFS
-  PEER=$SEED_LIST
+	OLD_IFS=$IFS
+	IFS=","
+	SEED_LIST=""
+	for SEED in $PEER; do
+		# check if we have a hostname we extract the IP
+		if ! expr "$SEED" : '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$' >/dev/null; then
+			SEED=$(host "$SEED" | awk '{print $4}')
+		fi
+		SEED_ID=$(curl -m 10 -sL --fail "http://$SEED:6040/p2pid") || continue
+		SEED="/ip4/$SEED/tcp/5040/ipfs/$SEED_ID"
+		if [ -z "$SEED_LIST" ]; then
+			SEED_LIST="\"$SEED\""
+		else
+			SEED_LIST="$SEED_LIST,\"$SEED\""
+		fi
+	done
+	IFS=$OLD_IFS
+	PEER=$SEED_LIST
 fi
 
 OBSERVER_PATH=$DB_PATH/bifrost/observer/
@@ -85,7 +88,8 @@ echo "{
         \"signer_name\": \"$SIGNER_NAME\"
     },
     \"metrics\": {
-        \"enabled\": true
+        \"enabled\": true,
+        \"pprof_enabled\": $PPROF_ENABLED
     },
     \"chains\": [
       {
@@ -135,6 +139,7 @@ echo "{
         \"password\": \"$RPC_PASSWD\",
         \"http_post_mode\": 1,
         \"disable_tls\": 1,
+        \"disabled\": $DOGE_DISABLED,
         \"block_scanner\": {
           \"rpc_host\": \"$DOGE_HOST\",
           \"enforce_block_height\": false,

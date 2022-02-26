@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -251,7 +252,7 @@ func (c *Client) GetAddress(poolPubKey common.PubKey) string {
 }
 
 // GetAccountByAddress return empty account for now
-func (c *Client) GetAccountByAddress(address string) (common.Account, error) {
+func (c *Client) GetAccountByAddress(address string, height *big.Int) (common.Account, error) {
 	return common.Account{}, nil
 }
 
@@ -287,7 +288,10 @@ func (c *Client) loginToWallet(pkey common.PubKey) error {
 }
 
 // GetAccount returns account with balance for an address
-func (c *Client) GetAccount(pkey common.PubKey) (common.Account, error) {
+func (c *Client) GetAccount(pkey common.PubKey, height *big.Int) (common.Account, error) {
+	if height != nil {
+		c.logger.Error().Msg("height was provided but will be ignored")
+	}
 
 	acct := common.Account{}
 	if pkey.IsEmpty() {
@@ -536,7 +540,7 @@ func (c *Client) FetchTxs(height int64) (types.TxIn, error) {
 	}
 	block, err := GetBlock(height)
 	if err != nil {
-		return txIn, btypes.UnavailableBlock
+		return txIn, btypes.ErrUnavailableBlock
 	}
 
 	// if somehow the block is not valid
@@ -1341,7 +1345,7 @@ func (c *Client) reportSolvency(blockHeight int64) error {
 		return fmt.Errorf("fail to get asgards,err: %w", err)
 	}
 	for _, asgard := range asgardVaults {
-		acct, err := c.GetAccount(asgard.PubKey)
+		acct, err := c.GetAccount(asgard.PubKey, nil)
 		if err != nil {
 			c.logger.Err(err).Msgf("fail to get account balance")
 			continue

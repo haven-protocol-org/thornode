@@ -55,7 +55,8 @@ func NewBinanceBlockScanner(cfg config.BlockScannerConfiguration,
 	scanStorage blockscanner.ScannerStorage,
 	isTestNet bool,
 	bridge *thorclient.ThorchainBridge,
-	m *metrics.Metrics, solvencyReporter SolvencyReporter) (*BinanceBlockScanner, error) {
+	m *metrics.Metrics, solvencyReporter SolvencyReporter,
+) (*BinanceBlockScanner, error) {
 	if scanStorage == nil {
 		return nil, errors.New("scanStorage is nil")
 	}
@@ -186,7 +187,9 @@ func (b *BinanceBlockScanner) updateFees(height int64) error {
 			}
 		}
 	}
+	b.m.GetGauge(metrics.GasPrice(common.BNBChain)).Set(float64(b.singleFee))
 	if changed {
+		b.m.GetCounter(metrics.GasPriceChange(common.BNBChain)).Inc()
 		if _, err := b.bridge.PostNetworkFee(height, common.BNBChain, 1, b.singleFee); err != nil {
 			b.logger.Err(err).Msg("fail to post Binance chain single transfer fee to THORNode")
 		}
@@ -305,7 +308,7 @@ func (b *BinanceBlockScanner) getRPCBlock(height int64) ([]string, error) {
 	buf, err := b.getFromHttp(url)
 	if err != nil {
 		if strings.Contains(err.Error(), "Height must be less than or equal to the current blockchain height") {
-			return nil, bltypes.UnavailableBlock
+			return nil, bltypes.ErrUnavailableBlock
 		}
 		return nil, err
 	}
