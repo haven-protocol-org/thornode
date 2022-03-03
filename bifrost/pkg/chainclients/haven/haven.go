@@ -109,8 +109,6 @@ func NewClient(
 		Address: cfg.WalletRPCHost,
 	})
 
-	log.Logger.Info().Msgf("Haven Wallet-Rpc IP address %s", cfg.WalletRPCHost)
-
 	// create haven tss server
 	tssKm, err := tss.NewKeySignMn(server, bridge)
 	if err != nil {
@@ -149,10 +147,40 @@ func NewClient(
 		Address:  walletAddr.String(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fail to generatre a haven wallet: %+v", err)
-	}
-	if len(walletResp.Address) == 0 {
-		return nil, fmt.Errorf("unexpected error when generating the haven wallet: %s", walletResp.Info)
+		b, walletError := wallet.GetWalletError(err)
+		if b && walletError.Code == -1 {
+			// wallet already exist, try to login with the password
+			err = client.OpenWallet(&wallet.RequestOpenWallet{
+				Filename: cfg.UserName,
+				Password: cfg.Password,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("fail to generatre a haven wallet, wallet already exist but can't login with the given password: %+v", err)
+			}
+
+			// verify the addresses match
+			addr, err := client.GetAddress(&wallet.RequestGetAddress{
+				AccountIndex: 0,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("fail to generatre a haven wallet, wallet already exist but can't get the address: %+v", err)
+			}
+			if addr.Address != walletAddr.String() {
+				return nil, fmt.Errorf("fail to generatre a haven wallet, wallet already exist but has different address than bifrost: %+v", err)
+			}
+
+			// close the wallet
+			err = client.CloseWallet()
+			if err != nil {
+				return nil, fmt.Errorf("fail to close logged in wallet: %+v", err)
+			}
+		} else {
+			return nil, fmt.Errorf("fail to generatre a haven wallet: %+v", err)
+		}
+	} else {
+		if len(walletResp.Address) == 0 {
+			return nil, fmt.Errorf("unexpected error when generating the haven wallet: %s", walletResp.Info)
+		}
 	}
 
 	if pkm == nil {
@@ -319,7 +347,7 @@ func (c *Client) GetAccount(pkey common.PubKey, height *big.Int) (common.Account
 			if err != nil {
 				return acct, fmt.Errorf("fail tconstruct asset: %w", err)
 			}
-			coins = append(coins, common.NewCoin(a, cosmos.NewUint(uint64(resp.UnlockedBalance))))
+			coins = append(coins, common.NewCoin(a, cosmos.NewUint(uint64(resp.Balance))))
 		}
 	}
 

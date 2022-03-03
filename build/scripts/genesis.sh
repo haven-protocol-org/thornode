@@ -83,6 +83,7 @@ if [ "$SEED" = "$(hostname)" ]; then
       add_account tthor1wz78qmrkplrdhy37tw0tnvn0tkm5pqd6zdp257 rune 25000000000100
       add_account tthor1xwusttz86hqfuk5z7amcgqsg7vp6g8zhsp5lu2 rune 5090000000000
       reserve 22000000000000000
+      add_account $NODE_ADDRESS rune 1000000000000
       # deploy eth contract
       deploy_eth_contract $ETH_HOST
 

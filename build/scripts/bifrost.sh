@@ -29,8 +29,8 @@ BCH_HOST="${BCH_HOST:=bitcoin-cash-regtest:18443}"
 BCH_START_BLOCK_HEIGHT="${BCH_START_BLOCK_HEIGHT:=0}"
 
 # Haven chain config
-XHV_HOST="${XHV_HOST:=http://localhost:27750}"
-XHV_WALLET_HOST="${XHV_WALLET_HOST:=http://localhost:6061/json_rpc}"
+XHV_HOST="${XHV_HOST:=http://10.48.82.144:37750}"
+XHV_WALLET_HOST="${XHV_WALLET_HOST:=http://10.48.82.144:6061/json_rpc}"
 XHV_START_BLOCK_HEIGHT="${XHV_START_BLOCK_HEIGHT:=0}"
 
 DB_PATH="${DB_PATH:=/var/data}"
