@@ -161,7 +161,7 @@ func (c Chain) AddressPrefix(cn ChainNetwork) string {
 		case DOGEChain:
 			return dogchaincfg.RegressionNetParams.Bech32HRPSegwit
 		case XHVChain:
-			return "hvsa"
+			return "hvt"
 		}
 	case TestNet:
 		switch c {
@@ -179,9 +179,26 @@ func (c Chain) AddressPrefix(cn ChainNetwork) string {
 		case DOGEChain:
 			return dogchaincfg.TestNet3Params.Bech32HRPSegwit
 		case XHVChain:
+			return "hvt"
+		}
+	case StageNet:
+		switch c {
+		case BNBChain:
+			return btypes.ProdNetwork.Bech32Prefixes()
+		case ETHChain:
+			return "0x"
+		case THORChain:
+			return types.GetConfig().GetBech32AccountAddrPrefix()
+		case BTCChain:
+			return chaincfg.MainNetParams.Bech32HRPSegwit
+		case LTCChain:
+			return ltcchaincfg.MainNetParams.Bech32HRPSegwit
+		case DOGEChain:
+			return dogchaincfg.MainNetParams.Bech32HRPSegwit
+		case XHVChain:
 			return "hvsa"
 		}
-	case MainNet, StageNet:
+	case MainNet:
 		switch c {
 		case BNBChain:
 			return btypes.ProdNetwork.Bech32Prefixes()

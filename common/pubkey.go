@@ -263,14 +263,14 @@ func (pubKey PubKey) GetAddress(chain Chain) (Address, error) {
 		chainNetwork := GetCurrentChainNetwork()
 		var tag uint64
 		switch chainNetwork {
-		case MockNet:
-			// Haven stagenet tag(hvsa)
-			tag = 0x239974
-		case TestNet:
+		case MockNet, TestNet:
+			// Haven testnet tag(hvt)
+			tag = 0x59f4
+		case StageNet:
 			// Haven stagenet tag(hvsa)
 			tag = 0x239974
 		case MainNet:
-			// Haven mainnet tag
+			// Haven mainnet tag(hvx)
 			tag = 0x05af4
 		}
 		walletAddr := moneroBase58.EncodeAddr(tag, addData)
