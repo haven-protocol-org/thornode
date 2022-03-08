@@ -188,7 +188,7 @@ func (scp *SmartContractLogParser) getTxInItem(logs []*etypes.Log, txInItem *typ
 				continue
 			}
 			scp.logger.Info().Msgf("transfer out: %+v", transferOutEvt)
-			m, err := memo.ParseMemo(transferOutEvt.Memo)
+			m, err := memo.ParseMemo(common.LatestVersion, transferOutEvt.Memo)
 			if err != nil {
 				scp.logger.Err(err).Msgf("fail to parse memo: %s", transferOutEvt.Memo)
 				continue
@@ -237,7 +237,7 @@ func (scp *SmartContractLogParser) getTxInItem(logs []*etypes.Log, txInItem *typ
 				scp.logger.Error().Msg("multiple events in the same transaction , have different memo , ignore")
 				continue
 			}
-			m, err := memo.ParseMemo(transferAllowanceEvt.Memo)
+			m, err := memo.ParseMemo(common.LatestVersion, transferAllowanceEvt.Memo)
 			if err != nil {
 				scp.logger.Err(err).Msgf("fail to parse memo: %s", transferAllowanceEvt.Memo)
 				continue
@@ -280,7 +280,7 @@ func (scp *SmartContractLogParser) getTxInItem(logs []*etypes.Log, txInItem *typ
 				scp.logger.Error().Msg("multiple events in the same transaction , have different memo , ignore")
 				continue
 			}
-			m, err := memo.ParseMemo(transferEvent.Memo)
+			m, err := memo.ParseMemo(common.LatestVersion, transferEvent.Memo)
 			if err != nil {
 				scp.logger.Err(err).Msgf("fail to parse memo: %s", transferEvent.Memo)
 				continue

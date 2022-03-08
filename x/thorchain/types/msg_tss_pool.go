@@ -109,6 +109,9 @@ func (m *MsgTssPool) ValidateBasic() error {
 	if !isSignerInPubKeys {
 		return cosmos.ErrUnknownRequest("signer is not part of keygen member")
 	}
+	if !isSignerInPubKeys {
+		return cosmos.ErrUnknownRequest("signer is not part of keygen member")
+	}
 	// PoolPubKey can't be empty only when keygen success
 	if m.IsSuccess() {
 		if m.PoolPubKey.IsEmpty() {

@@ -152,11 +152,7 @@ func applyDefaultConfig() {
 	viper.SetDefault("metrics.write_timeout", "30s")
 	viper.SetDefault("metrics.chains", common.Chains{common.BNBChain, common.BTCChain, common.LTCChain, common.BCHChain, common.ETHChain, common.DOGEChain, common.XHVChain})
 	viper.SetDefault("thorchain.chain_id", "thorchain")
-	viper.SetDefault("thorchain.chain_host", "localhost:1317")
 	viper.SetDefault("back_off.initial_interval", 500*time.Millisecond)
-	viper.SetDefault("back_off.randomization_factor", 0.5)
-	viper.SetDefault("back_off.multiplier", 1.5)
-	viper.SetDefault("back_off.max_interval", 3*time.Minute)
 	viper.SetDefault("back_off.max_elapsed_time", 168*time.Hour) // 7 days. Due to node sync time's being so random
 	applyDefaultSignerConfig()
 }

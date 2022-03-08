@@ -975,7 +975,7 @@ func (c *Client) getTxIn(tx *RawTx, height int64, inBlock bool) (types.TxInItem,
 	}
 
 	// check it is a valid memo
-	memo, err := mem.ParseMemo(memoStr)
+	memo, err := mem.ParseMemo(common.LatestVersion, memoStr)
 	if err != nil {
 		return types.TxInItem{}, fmt.Errorf("ignoring a tx with invalid memo: %w", err)
 	}
@@ -1210,7 +1210,7 @@ func (c *Client) SignTx(tx types.TxOutItem, thorchainHeight int64) ([]byte, erro
 		return nil, fmt.Errorf("can't sign tx when it doesn't have memo")
 	}
 
-	memo, err := mem.ParseMemo(tx.Memo)
+	memo, err := mem.ParseMemo(common.LatestVersion, tx.Memo)
 	if err != nil {
 		return nil, fmt.Errorf("fail to parse memo(%s):%w", tx.Memo, err)
 	}
